@@ -3,3 +3,6 @@ Data and code corresponding to the manuscript, "A Digital Mindset Intervention t
 
 ## Data Dictionary and Response Codes
 The "Variable Dictionary and Response Codes.docx" includes each survey question and response option. At the top of each block is the measurement or survey name. Before the question instructions, there is a code representing the measurement code. After each response option is a (#) indicating the code of that response.
+
+## Data Processing Code
+The R code "r_code.R" is used for computing the statistical analyses with the data "deidentified_data.csv" and "enrolled_participants.csv"
