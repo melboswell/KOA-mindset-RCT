@@ -25,7 +25,7 @@ select = dplyr::select
 
 # Next, reading the data
 GLAB = c("Mindset", "Education", "No-intervention")
-df = read.csv("deidentified_data.csv") %>%
+df = read.csv("../deidentified_data.csv") %>%
   mutate(group = recode_values(t2_Group.ID, from = c(1, 2, 3),
                                to = GLAB), # Group names
          female = case_when(t1_sex == 1 ~ 1,
