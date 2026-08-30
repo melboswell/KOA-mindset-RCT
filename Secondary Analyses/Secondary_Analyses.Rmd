@@ -61,7 +61,7 @@ df = read.csv("../deidentified_data.csv") %>%
 
 ## Calculate p-values
 
-For the moderation analysis, we map over all variables of interest, estimate the corresponding model, and extract the interaction/p-values from the result. 
+For the moderation analysis, we map over all variables of interest, estimate the corresponding model, and extract the interaction/p-values from the result. Linear regression is used here and throughout as it is simpler, and no boundary effects were observed in any of the models constructed. 
 
 ```{r moderation_models}
 # Variables of interest
