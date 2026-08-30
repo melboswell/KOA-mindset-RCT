@@ -392,7 +392,7 @@ We begin by assessing mediation of the MINDSET vs NONE treatment effect.
 
 ```{r mind_med_psych_vs_no, message = FALSE}
 # Outcomes of interest
-outcomes = c("Y_TSK", "Y_ASEp")
+outcomes = c("t3_TSK_avg", "t3_ASE_pain_avg")
 out_names = c("Fear of movement",
               "Pain self-efficacy")
 
@@ -408,10 +408,17 @@ for(idx in 1:length(outcomes)){
   varname = outcomes[idx]
   
   # Mediator model
-  model1 = lm(chg_OAcomp ~ Treat, data = fit_df_vs_none)
+  model1 = lm(t2_OAcomp ~ t1_OAcomp + Treat, data = fit_df_vs_none)
   
   # Direct and indirect effects model (binary outcome)
-  form = as.formula(paste0(varname, "~ chg_OAcomp + Treat"))
+  form_string = "~ t2_OAcomp + t1_OAcomp + Treat"
+  if(varname == "t3_TSK_avg"){
+    form_string = paste0(form_string, " + t1_TSK_avg")
+  }
+  else{
+    form_string = paste0(form_string, " + t1_ASE_pain_avg")
+  }
+  form = as.formula(paste0(varname, form_string))
   model2 = lm(form, data = fit_df_vs_none)
   
   # Mediation analysis
@@ -419,11 +426,12 @@ for(idx in 1:length(outcomes)){
     model1,
     model2,
     treat = "Treat",
-    mediator = "chg_OAcomp",
+    mediator = "t2_OAcomp",
     boot = TRUE,
     sims = 1000
   )
   summ_med = summary(med_res)
+  print(summ_med)
   
   output_vs_none = rbind(output_vs_none,
                  data.frame(outcome = out_names[idx],
@@ -453,10 +461,17 @@ for(idx in 1:length(outcomes)){
   varname = outcomes[idx]
   
   # Mediator model
-  model1 = lm(chg_OAcomp ~ Treat, data = fit_df_vs_edu)
+  model1 = lm(t2_OAcomp ~ t1_OAcomp + Treat, data = fit_df_vs_edu)
   
   # Direct and indirect effects model (binary outcome)
-  form = as.formula(paste0(varname, "~ chg_OAcomp + Treat"))
+  form_string = "~ t2_OAcomp + t1_OAcomp + Treat"
+  if(varname == "t3_TSK_avg"){
+    form_string = paste0(form_string, " + t1_TSK_avg")
+  }
+  else{
+    form_string = paste0(form_string, " + t1_ASE_pain_avg")
+  }
+  form = as.formula(paste0(varname, form_string))
   model2 = lm(form, data = fit_df_vs_edu)
   
   # Mediation analysis
@@ -464,7 +479,7 @@ for(idx in 1:length(outcomes)){
     model1,
     model2,
     treat = "Treat",
-    mediator = "chg_OAcomp",
+    mediator = "t2_OAcomp",
     boot = TRUE,
     sims = 1000
   )
@@ -481,7 +496,7 @@ for(idx in 1:length(outcomes)){
 output_vs_edu
 ```
 
-The mediation is similarly strong when considering the MINDSET vs EDUCATION treatment effect, with similar proportions of mediation.
+The mediation is similarly strong when considering the MINDSET vs EDUCATION treatment effect, with similar, slightly higher, proportions of mediation.
 
 ## Multiple Testing Adjustment
 
@@ -505,7 +520,7 @@ view_df %>%
   arrange(p_value)
 ```
 
-After Benjamini-Hochberg correction, all mediations are still significant at the 0.05 level. Even under the much more conservative Bonferroni correction, all mediations are significant at the same level other than the mediation of the MINDSET vs EDUCATION treatment effect on the "fear of movement" outcome.
+After Benjamini-Hochberg correction, all mediation p-values are incredibly small, indicating significance at the 0.05 level. Even under the much more conservative Bonferroni correction, all mediations are significant at the same level.
 
 # Analysis 5 - Serial Mediation of Mindset -> Self-efficacy -> Activity
 
