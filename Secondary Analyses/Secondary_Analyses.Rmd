@@ -82,10 +82,10 @@ for_mod = df %>%
 
 analysis_type = "primary"
 mod_string = switch(analysis_type, 
-                    primary = "chg_PEM_avg ~ group*", 
-                    adjust_1 = "chg_PEM_avg ~ t1_pain + group*", 
-                    adjust_2 = "chg_PEM_avg ~ t1_pain + depression + group*", 
-                    adjust_3 = "chg_PEM_avg ~ t1_pain + depression + t1_ASE_function_avg + t1_ASE_pain_avg + group*") 
+                    primary = "t2_PEM_avg ~ t1_PEM_avg + group*", 
+                    adjust_1 = "t2_PEM_avg ~ t1_PEM_avg + t1_pain + group*", 
+                    adjust_2 = "t2_PEM_avg ~ t1_PEM_avg + t1_pain + depression + group*", 
+                    adjust_3 = "t2_PEM_avg ~ t1_PEM_avg + t1_pain + depression + t1_ASE_function_avg + t1_ASE_pain_avg + group*") 
 
 # Map over variables and fit models, conditional on baseline mindset
 model_fits = map(vars, function(x){
@@ -130,7 +130,7 @@ raw_t_stats = map(vars, function(x){
 permute_maxT = map(1:n_boot, function(x){
   # Permute the dataset
   permuted = for_mod[sample(nrow(for_mod), replace = F),]
-  permuted$chg_PEM_avg = for_mod$chg_PEM_avg
+  permuted$t2_PEM_avg = for_mod$t2_PEM_avg
 
   # Calculate t-statistics for permuted dataset
   perm_t = map(vars, function(y){
@@ -171,7 +171,7 @@ data.frame(Var = names(vars),
   arrange(p_value)
 ```
 
-Baseline activity shows up as a consistent moderator, regardless of adjustment method.  Baseline self-efficacy, baseline fear of movement and baseline pain lose moderator status under Benjamini-Hochberg adjustment for the primary analysis (no adjustment).
+Baseline activity and self-efficacy show up as consistent moderators, regardless of adjustment method.  Baseline fear of movement and baseline pain are also significant using Benjamini-Hochberg adjustment, but they lose moderator status under more conservative adjustment routines.
 
 ## Evaluating the Benjamini-Hochberg Procedure
 
@@ -184,12 +184,12 @@ n_boot = 10000
 false_discovery = map(1:n_boot, function(x){
   # Permute the dataset
   permuted = for_mod[sample(nrow(for_mod), replace = F),]
-  permuted$chg_PEM_avg = for_mod$chg_PEM_avg
+  permuted$t2_PEM_avg = for_mod$t2_PEM_avg
   
   # P-values after permutation
   perm_pvals = map(vars, function(y){
     # Model formula
-    form = as.formula(paste0("chg_PEM_avg ~ zbase + group*", y))
+    form = as.formula(paste0("t2_PEM_avg ~ t1_PEM_avg + group*", y))
     
     # Fit the model on the permuted data
     mod = lm(form, data = permuted)
