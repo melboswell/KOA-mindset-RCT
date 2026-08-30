@@ -380,7 +380,7 @@ view_df %>%
   arrange(p_value)
 ```
 
-After Benjamini-Hochberg correction, there is still significant mediation of the MINDSET vs NONE treatment effect for the outcomes of "imposing physical limitations" and "perceived need for surgery", as well as of the MINDSET vs EDUCATION treatment effect for the "perceived need for surgery" outcome at the 0.05 level. Under the more conservative Bonferroni adjustment, the mediation of the MINDSET vs EDUCATION treatment effect on the "perceived need for surgery" outcome is no longer significant at this level.
+After Benjamini-Hochberg and Bonferroni correction, there is still significant mediation of the MINDSET vs NONE treatment effect for the outcomes of "imposing physical limitations" and "perceived need for surgery", as well as of the MINDSET vs EDUCATION treatment effect for the "perceived need for surgery" outcome at the 0.05 level. 
 
 # Analysis 4 - Mindset Mediation of Treatment -> Psychosocial Outcomes
 
