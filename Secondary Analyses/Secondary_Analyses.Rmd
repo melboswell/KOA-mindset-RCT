@@ -260,7 +260,7 @@ We begin by assessing mediation of the MINDSET vs NONE treatment effect.
 
 ```{r mind_med_outcomes_vs_no, message = FALSE}
 # Outcomes of interest
-outcomes = c("Y_surgery", "Y_limit", "Y_inject")
+outcomes = c("t3_surgery", "Y_limit", "Y_inject")
 out_names = c("Perceived need for surgery",
               "Imposing physical limitations",
               "Injection Use")
@@ -277,10 +277,12 @@ for(idx in 1:length(outcomes)){
   varname = outcomes[idx]
   
   # Mediator model
-  model1 = glm(chg_OAcomp ~ Treat, data = fit_df_vs_none, family = "gaussian")
+  model1 = glm(t2_OAcomp ~ t1_OAcomp + Treat, data = fit_df_vs_none, family = "gaussian")
   
   # Direct and indirect effects model (binary outcome)
-  form = as.formula(paste0(varname, "~ chg_OAcomp + Treat"))
+  form_string = "~ t2_OAcomp + t1_OAcomp + Treat"
+  if(varname == "t3_surgery"){ form_string = paste0(form_string, " + t1_surgery") }
+  form = as.formula(paste0(varname, form_string))
   fam = ifelse(varname %in% c("Y_limit", "Y_inject"), "binomial", "gaussian")
   model2 = glm(form, data = fit_df_vs_none, family = fam)
   
@@ -289,7 +291,7 @@ for(idx in 1:length(outcomes)){
     model1,
     model2,
     treat = "Treat",
-    mediator = "chg_OAcomp",
+    mediator = "t2_OAcomp",
     boot = TRUE,
     sims = 1000
   )
@@ -323,10 +325,12 @@ for(idx in 1:length(outcomes)){
   varname = outcomes[idx]
   
   # Mediator model
-  model1 = glm(chg_OAcomp ~ Treat, data = fit_df_vs_edu, family = "gaussian")
+  model1 = glm(t2_OAcomp ~ t1_OAcomp + Treat, data = fit_df_vs_edu, family = "gaussian")
   
   # Direct and indirect effects model (binary outcome)
-  form = as.formula(paste0(varname, "~ chg_OAcomp + Treat"))
+  form_string = "~ t2_OAcomp + t1_OAcomp + Treat"
+  if(varname == "t3_surgery"){ form_string = paste0(form_string, " + t1_surgery") }
+  form = as.formula(paste0(varname, form_string))
   fam = ifelse(varname %in% c("Y_limit", "Y_inject"), "binomial", "gaussian")
   model2 = glm(form, data = fit_df_vs_edu, family = fam)
   
@@ -335,7 +339,7 @@ for(idx in 1:length(outcomes)){
     model1,
     model2,
     treat = "Treat",
-    mediator = "chg_OAcomp",
+    mediator = "t2_OAcomp",
     boot = TRUE,
     sims = 1000
   )
@@ -352,7 +356,7 @@ for(idx in 1:length(outcomes)){
 output_vs_edu
 ```
 
-We see that mindset meaningfully mediates the treatment effect (MINDSET vs EDUCATION) on both perceived need for surgery and imposing physical limitations here as well, though not quite so strongly as for the effect of MINDSET vs NONE.
+We see that mindset meaningfully mediates the treatment effect (MINDSET vs EDUCATION) on perceived need for surgery here as well, in a similar capacity as was observed for the effect of MINDSET vs NONE.
 
 ## Multiple Testing Adjustment
 
