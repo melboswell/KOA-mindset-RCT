@@ -524,35 +524,36 @@ After Benjamini-Hochberg correction, all mediation p-values are incredibly small
 
 # Analysis 5 - Serial Mediation of Mindset -> Self-efficacy -> Activity
 
-We will examine a two-step mediation model, where treatment affects mindset, which affects self-efficacy, which finally affects the activity outcome. All predictors earlier in this chain are assumed to be able to directly influence the downstream variables/outcomes. We focus on examining the relative magnitudes of the indirect and direct effects of mindset on the activity outcome. This model can be fit using structural equation modeling software as follows, where inference is accomplished using bootstrap inference. First, we focus on the treatment effect of MINDSET vs NONE.
+We will examine a two-step mediation model, where treatment affects mindset, which affects self-efficacy, which finally affects the activity outcome. All predictors earlier in this chain are assumed to directly influence the downstream variables/outcomes. We focus on examining the relative magnitudes of the indirect and direct effects of mindset on the activity outcome. This model can be fit using structural equation modeling software as follows, where inference is accomplished using bootstrap inference. First, we focus on the treatment effect of MINDSET vs NONE.
 
 ```{r serial_SEM_none}
 # Filter data to mindset vs no intervention
 for_mod_no = df %>%
   filter(t2_Group.ID %in% c(1, 3)) %>%
   mutate(Treat = case_when(t2_Group.ID == 1 ~ 1,
-                           TRUE ~ 0), 
-         Y_pase = scale(Y_pase)[,1]) # Scale for numerical stability
+                           TRUE ~ 0),
+         t3_PASE_total = scale(t3_PASE_total)[,1], 
+         t1_PASE_total = scale(t1_PASE_total)[,1]) # Scale for numerical stability
 
 # Specify the structural equations model
 serial_model = "
-  chg_OAcomp ~ a * Treat
-  Y_ASEp ~ b * chg_OAcomp + c * Treat
-  Y_pase ~ d * Y_ASEp + e * chg_OAcomp + f * Treat
-  ind_eff := d * b
+  t2_OAcomp ~ a * t1_OAcomp + b * Treat
+  t3_ASE_pain_avg ~ c * t2_OAcomp + c * t1_OAcomp + d * t1_ASE_pain_avg + e * Treat
+  t3_PASE_total ~ f * t3_ASE_pain_avg + g * t1_ASE_pain_avg + h * t2_OAcomp + i * t1_OAcomp + j * t1_PASE_total + k * Treat
+  ind_eff := f * c
 "
 
 # Fit the model
 fit = sem(model = serial_model, data = for_mod_no, se = "boot",
           bootstrap = 5000)
 parameterEstimates(fit, boot.ci.type = "norm") %>%
-  filter(label %in% c("e", "ind_eff")) %>%
+  filter(label %in% c("h", "ind_eff")) %>%
   select(label, est, pvalue, ci.lower, ci.upper) %>%
-  mutate(label = case_when(label == "e" ~ "Direct Effect", 
+  mutate(label = case_when(label == "h" ~ "Direct Effect", 
                            TRUE ~ "Indirect Effect"))
 ```
 
-From the above table, it is clear that the estimated direct effect is nearly zero, while the indirect effect is relatively much more positive. However, neither the direct nor indirect effect of mindset on activity is significant at the 0.05 level when considering treatment to be the MINDSET vs NONE contrast. 
+From the above table, it is clear that both the estimated direct effect and the estimated indirect effects are nearly zero, and neither the direct nor indirect effect of mindset on activity is significant at the 0.05 level when considering treatment to be the MINDSET vs NONE contrast. 
 
 We can repeat this analysis, instead focusing on the treatment effect of MINDSET vs EDUCATION.
 
@@ -562,18 +563,19 @@ for_mod_edu = df %>%
   filter(t2_Group.ID %in% c(1, 2)) %>%
   mutate(Treat = case_when(t2_Group.ID == 1 ~ 1,
                            TRUE ~ 0),
-         Y_pase = scale(Y_pase)[,1]) # Scale for numerical stability
+         t3_PASE_total = scale(t3_PASE_total)[,1], 
+         t1_PASE_total = scale(t1_PASE_total)[,1]) # Scale for numerical stability
 
 fit = sem(model = serial_model, data = for_mod_edu, se = "boot",
           bootstrap = 5000)
 parameterEstimates(fit, boot.ci.type = "norm") %>%
-  filter(label %in% c("e", "ind_eff")) %>%
+  filter(label %in% c("h", "ind_eff")) %>%
   select(label, est, pvalue, ci.lower, ci.upper) %>%
-  mutate(label = case_when(label == "e" ~ "Direct Effect", 
+  mutate(label = case_when(label == "h" ~ "Direct Effect", 
                            TRUE ~ "Indirect Effect"))
 ```
 
-When the treatment is adjusted to MINDSET vs EDUCATION, the direct effect becomes negative, though still not statistically significant from zero at a 0.05 level. The indirect effect, which is still positive under this treatment contrast, is now just barely statistically significant at the 0.05 level. Notice that, regardless of the treatment specification, the indirect effect is quite small on the scale of standard deviation of the activity outcome.
+When the treatment is adjusted to MINDSET vs EDUCATION, the direct effect becomes negative, though still not statistically significant from zero at a 0.05 level. The indirect effect, which is positive under this treatment contrast, is now statistically significant at the 0.05 level. Notice that, regardless of the treatment specification, the indirect effect is relatively small on the scale of standard deviation of the activity outcome.
 
 # Analysis 6 - Heterogeneity of Treatment Effects
 
