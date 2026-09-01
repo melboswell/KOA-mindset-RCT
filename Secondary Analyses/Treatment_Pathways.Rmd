@@ -2,7 +2,9 @@
 title: "Treatment Pathways"
 author: "Joe Sartini"
 date: "2026-09-01"
-output: html_document
+output:
+  html_document: default
+  pdf_document: default
 ---
 
 
@@ -63,7 +65,7 @@ df = read.csv("../deidentified_data.csv") %>%
 
 ## Mediation Analysis
 
-We perform a causal mediation analysis to assess change in exercise mindset (time point 2 - time point 1) as a potential mediator of the treatment effect on activity change (time point 3 - time point 1). . Rather that including the changes as predictors/outcomes directly, we include the latter measures adjusted for the earlier ones. Uncertainty is assessed using bootstrap inference.
+We perform a causal mediation analysis to assess change in exercise mindset (time point 2 - time point 1) as a potential mediator of the treatment effect on activity change (time point 3 - time point 1). Rather that including the changes as predictors/outcomes directly, we include the latter measures adjusted for the earlier ones. Uncertainty is assessed using bootstrap inference.
 
 ```{r mind_med_activity}
 # Filter data to mindset vs no intervention
@@ -353,7 +355,7 @@ The mediation is similarly strong when considering the MINDSET vs EDUCATION trea
 
 We can again perform a multiple-testing adjustment, grouping together the 4 tests (2 outcomes x 2 treatment effects) as part of examining the potential exercise mindset mediation of the treatment effect(s) on psychosocial outcomes. 
 
-```{r mind_med_padj}
+```{r psych_med_padj}
 # Join outputs of the previous two analyses
 view_df = rbind(output_vs_none %>% 
                   select(outcome, p_value) %>%
