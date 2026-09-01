@@ -391,7 +391,7 @@ We begin by assessing mediation of the MINDSET vs NONE treatment effect.
 
 ```{r mind_med_psych_vs_no, message = FALSE}
 # Outcomes of interest
-outcomes = c("t3_TSK_avg", "t3_ASE_pain_avg", )
+outcomes = c("t3_TSK_avg", "t3_ASE_pain_avg")
 out_names = c("Fear of movement",
               "Pain self-efficacy")
 
