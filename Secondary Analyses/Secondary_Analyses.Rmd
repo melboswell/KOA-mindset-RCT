@@ -254,16 +254,15 @@ The low correlation is indicative of a weak relationship between these two measu
 
 ## Mediation
 
-We perform separate causal mediation analyses to assess mindset change (time point 2 - time point 1) as a potential mediator of the treatment effect on mindset-specific outcomes. These outcomes include difference in perceived need for surgery (time point 3 - time point 1), removal of self-imposed physical limitation (time point 1 to time point 3), and removal of injection use as a management strategy (time point 1 to time point 3). Generalized linear models are used to model the last two (binary) outcomes. Uncertainty is assessed using bootstrap inference.
+We perform separate causal mediation analyses to assess mindset change (time point 2 - time point 1) as a potential mediator of the treatment effect on mindset-specific outcomes. These outcomes include difference in perceived need for surgery (time point 3 - time point 1) and removal of self-imposed physical limitation (time point 1 to time point 3). Generalized linear models are used to model the last two (binary) outcomes. Uncertainty is assessed using bootstrap inference.
 
 We begin by assessing mediation of the MINDSET vs NONE treatment effect.
 
 ```{r mind_med_outcomes_vs_no, message = FALSE}
 # Outcomes of interest
-outcomes = c("t3_surgery", "Y_limit", "Y_inject")
+outcomes = c("t3_surgery", "Y_limit")
 out_names = c("Perceived need for surgery",
-              "Imposing physical limitations",
-              "Injection Use")
+              "Imposing physical limitations")
 
 # Filter data to mindset vs no intervention
 fit_df_vs_none = df %>%
@@ -308,7 +307,7 @@ for(idx in 1:length(outcomes)){
 output_vs_none
 ```
 
-We see that mindset mediates the treatment effect (MINDSET vs NONE) on both "perceived need for surgery" and "imposing physical limitations", but not on "injection use". Note that the "percent_mediated" column just reports the relative size of the mediation effect relative to the total effect, so it can fall outside of the 0\%-100\% range. 
+We see that mindset mediates the treatment effect (MINDSET vs NONE) on both "perceived need for surgery" and "imposing physical limitations". Note that the "percent_mediated" column just reports the relative size of the mediation effect relative to the total effect, so it can fall outside of the 0\%-100\% range. 
 
 We can continue by similarly assessing mediation of the MINDSET vs EDUCATION treatment effect for the same outcomes.
 
@@ -356,7 +355,7 @@ for(idx in 1:length(outcomes)){
 output_vs_edu
 ```
 
-We see that mindset meaningfully mediates the treatment effect (MINDSET vs EDUCATION) on perceived need for surgery here as well, in a similar capacity as was observed for the effect of MINDSET vs NONE.
+We see that mindset mediates the treatment effects (MINDSET vs EDUCATION) on both outcomes here as well, though the "imposing physical limitations" outcome is mediated much less and the indirect effect is no longer statistically significant from zero at a 0.05 level.
 
 ## Multiple Testing Adjustment
 
@@ -380,7 +379,7 @@ view_df %>%
   arrange(p_value)
 ```
 
-After Benjamini-Hochberg and Bonferroni correction, there is still significant mediation of the MINDSET vs NONE treatment effect for the outcomes of "imposing physical limitations" and "perceived need for surgery", as well as of the MINDSET vs EDUCATION treatment effect for the "perceived need for surgery" outcome at the 0.05 level. 
+After Benjamini-Hochberg and Bonferroni correction, there is still significant mediation of the MINDSET vs NONE treatment effect for both outcomes, as well as of the MINDSET vs EDUCATION treatment effect for the "perceived need for surgery" outcome at the 0.05 level. 
 
 # Analysis 4 - Mindset Mediation of Treatment -> Psychosocial Outcomes
 
@@ -392,7 +391,7 @@ We begin by assessing mediation of the MINDSET vs NONE treatment effect.
 
 ```{r mind_med_psych_vs_no, message = FALSE}
 # Outcomes of interest
-outcomes = c("t3_TSK_avg", "t3_ASE_pain_avg")
+outcomes = c("t3_TSK_avg", "t3_ASE_pain_avg", )
 out_names = c("Fear of movement",
               "Pain self-efficacy")
 
