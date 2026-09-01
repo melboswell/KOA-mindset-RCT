@@ -1,0 +1,307 @@
+---
+title: "Treatment Moderation"
+author: "Joe Sartini"
+date: "2026-09-01"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Set-up
+
+First, all necessary libraries are imported, the data is read in, and all necessary variables are produced.
+
+```{r set_up, message=FALSE}
+# First, the libraries 
+# If you want to replicate my environment exactly, use renv::restore()
+library(tidyverse)
+library(mediation)
+library(lavaan)
+library(multcomp)
+library(knitr)
+library(lme4)
+select = dplyr::select
+
+# Next, reading the data
+GLAB = c("Mindset", "Education", "No-intervention")
+df = read.csv("../deidentified_data.csv") %>%
+  mutate(group = recode_values(t2_Group.ID, from = c(1, 2, 3),
+                               to = GLAB), # Group names
+         female = case_when(t1_sex == 1 ~ 1,
+                            t1_sex == 0 ~ 0,
+                            TRUE ~ NA), # Recode sex
+         chg_PEM_avg = t2_PEM_avg - t1_PEM_avg, # Change scores
+         t3_OAcomp = t3_IMI_man + t3_IMI_opp - t3_IMI_cat,
+         t2_OAcomp = t2_IMI_man + t2_IMI_opp - t2_IMI_cat,
+         t1_OAcomp = t1_IMI_man + t1_IMI_opp - t1_IMI_cat,
+         Y_surgery = t3_surgery - t1_surgery,
+         Y_limit = case_when(t1_management_11 - t3_management_11 > 0 ~ 1,
+                             TRUE ~ 0), # Only improvement is a "1"
+         Y_inject = case_when(t1_management_2 - t3_management_2 > 0 ~ 1,
+                              TRUE ~ 0),
+         Y_TSK = t3_TSK_avg - t1_TSK_avg,
+         Y_ASEp = t3_ASE_pain_avg - t1_ASE_pain_avg,
+         chg_OAcomp = t2_OAcomp - t1_OAcomp, # Baseline features
+         bilateral = case_when(t1_uni.bi == 5 ~ 1,
+                               t1_uni.bi == 4 ~ 0,
+                               TRUE ~ NA),
+         minority = case_when(!(t1_race %in% c("6", "")) ~ 1,
+                              TRUE ~ 0),
+         employed = case_when(grepl("[1-2]", t1_employment) ~ 1,
+                              TRUE ~ 0),
+         depression = case_when(grepl("10", t1_med.cond) ~ 1, 
+                                TRUE ~ 0),
+         n_comorbid = lengths(strsplit(t1_med.cond, ",")),
+         Y_pase = t3_PASE_total - t1_PASE_total) %>%
+  mutate(group = factor(group, levels = GLAB[c(3,2,1)]))
+```
+
+# Analysis 1 - Moderators of the Treatment Effect
+
+## Calculate p-values
+
+For the moderation analysis, we map over all variables of interest, estimate the corresponding model, and extract the interaction/p-values from the result. Linear regression is used here and throughout as it is simpler, and no boundary effects were observed in any of the models constructed. 
+
+```{r moderation_models}
+# Variables of interest
+vars = c("female", "minority", "employed", "bilateral", "t1_age",
+         "t1_bmi", "n_comorbid", "t1_pain", "t1_pain.time", "t1_ASE_pain_avg",
+         "t1_TSK_avg", "t1_PASE_total")
+names(vars) = c("Female", "Racial/ethnic minority", "Employed", "Bilateral symptoms",
+          "Age", "BMI", "# comorbidities",  "Baseline Pain", "Symptom duration",
+          "Baseline self-efficacy", "Baseline fear of movement",
+          "Baseline activity")
+
+# Standardize continuous variables, convert binary to factor
+bin_vars = vars[1:4]
+cont_vars = vars[-c(1:4)]
+for_mod = df %>%
+  mutate(across(all_of(cont_vars), ~ scale(.x)[,1]),
+         across(all_of(bin_vars), ~ factor(.x)))
+
+analysis_type = "primary"
+mod_string = switch(analysis_type, 
+                    primary = "t2_PEM_avg ~ t1_PEM_avg + group*", 
+                    adjust_1 = "t2_PEM_avg ~ t1_PEM_avg + t1_pain + group*", 
+                    adjust_2 = "t2_PEM_avg ~ t1_PEM_avg + t1_pain + depression + group*", 
+                    adjust_3 = "t2_PEM_avg ~ t1_PEM_avg + t1_pain + depression + t1_ASE_function_avg + t1_ASE_pain_avg + group*") 
+
+# Map over variables and fit models, conditional on baseline mindset
+model_fits = map(vars, function(x){
+  # Model formula
+  form = as.formula(paste0(mod_string, x)) 
+  
+  # Fit OLS regression
+  mod = lm(form, data = for_mod) 
+  
+  # Extract coefficients and p-values
+  coef_df = summary(mod)$coefficients 
+  
+  # Estimand is in the last row
+  return(data.frame(p_value = coef_df[nrow(coef_df), 4],
+                    interaction = coef_df[nrow(coef_df), 1]))
+}) %>% list_rbind()
+```
+
+## Adjusting p-values
+
+We next adjust the p-values to account for multiple testing. Several different adjustment routines are considered as sensitivity analysis, though the main findings use Benjamini Hochberg. Bonferroni correction, Benjamini Yukeiteli, and maxT all are known to be more conservative than Benjamini Hochberg. As the maxT procedure is not available from a library in R, it is implemented from scratch below. A good resource for this procedure is [here](https://brainder.org/2017/01/18/why-the-maximum-statistic/).
+
+```{r moderation_maxT}
+n_boot = 10000
+
+raw_t_stats = map(vars, function(x){
+  # Model formula
+  form = as.formula(paste0(mod_string, x))
+  
+  # Fit the model
+  mod = lm(form, data = for_mod)
+  
+  # Extract the coefficients
+  coef_df = summary(mod)$coefficients
+  
+  # Estimand is in last row, t-statistic is in third column
+  return(coef_df[nrow(coef_df), 3])
+}) %>% unlist()
+
+# Next, permute the predictors (keeping the responses fixed), and estimate
+# max t-statistics
+permute_maxT = map(1:n_boot, function(x){
+  # Permute the dataset
+  permuted = for_mod[sample(nrow(for_mod), replace = F),]
+  permuted$t2_PEM_avg = for_mod$t2_PEM_avg
+
+  # Calculate t-statistics for permuted dataset
+  perm_t = map(vars, function(y){
+    # Model formula
+    form = as.formula(paste0(mod_string, y))
+    
+    # Fit the model
+    mod = lm(form, data = permuted)
+    
+    # Extract the coefficients
+    coef_df = summary(mod)$coefficients
+    
+    # Estimand is in last row, t-statistic is in third column
+    return(coef_df[nrow(coef_df), 3])
+  }) %>% unlist()
+
+  # Return the maximum absolute t-statistic among the predictors
+  return(max(abs(perm_t)))
+}) %>% unlist()
+
+# maxT-adjusted p-value is the empirical quantile of the absolute t-statistics
+# within the distribution of maximum absolute t-statistics
+maxT_corrected = map(1:length(vars), function(idx){
+  return(mean(abs(raw_t_stats[idx]) <= permute_maxT))
+}) %>% unlist()
+```
+
+We now compare these p-values with the other methods.
+
+```{r moderation_pvals}
+data.frame(Var = names(vars),
+           interaction = model_fits$interaction,
+           p_value = model_fits$p_value,
+           BH = p.adjust(model_fits$p_value, method = "BH"),
+           BY = p.adjust(model_fits$p_value, method = "BY"),
+           Bonferroni = p.adjust(model_fits$p_value, method = "bonferroni"),
+           MaxT = maxT_corrected) %>%
+  arrange(p_value)
+```
+
+Baseline activity and self-efficacy show up as consistent moderators, regardless of adjustment method.  Baseline fear of movement and baseline pain are also significant using Benjamini-Hochberg adjustment, but they lose moderator status under more conservative adjustment routines.
+
+## Evaluating the Benjamini-Hochberg Procedure
+
+To quickly assess whether the covariate structure in this case conflicts with the assumptions of the Benjamini-Hochberg procedure (tests are independent or exhibit positive regression dependence), we perform a simple empirical assessment. By permuting the subject's covariate values while keeping the responses fixed, we break all associations between predictors and outcomes. We can then estimate the moderation models, apply the Benjamini-Hochberg procedure, and assess the false discovery rate for the tests now known to be null. As all tests are truly null, note that Benjamini-Hochberg is expected to be much more conservative, nearly on-par with Bonferroni in control of the Family-wise Error Rate (rather than the False Discovery Rate).
+
+```{r moderation_eval}
+# Number of bootstrap replicates
+n_boot = 10000
+
+false_discovery = map(1:n_boot, function(x){
+  # Permute the dataset
+  permuted = for_mod[sample(nrow(for_mod), replace = F),]
+  permuted$t2_PEM_avg = for_mod$t2_PEM_avg
+  
+  # P-values after permutation
+  perm_pvals = map(vars, function(y){
+    # Model formula
+    form = as.formula(paste0("t2_PEM_avg ~ t1_PEM_avg + group*", y))
+    
+    # Fit the model on the permuted data
+    mod = lm(form, data = permuted)
+    
+    # Extract model coefficients
+    coef_df = summary(mod)$coefficients
+    
+    # Estimand is in last row, p-value is in fourth column
+    return(coef_df[nrow(coef_df), 4])
+  }) %>% unlist()
+  
+  # Apply the Benjamini-Hochberg adjustment
+  adj_pvals = p.adjust(perm_pvals, method = "BH")
+
+  # Calculate FDR
+  return(mean(adj_pvals < 0.05))
+}) %>% unlist()
+
+mean(false_discovery) 
+```
+
+The average false discovery rate is considerably below the desired 0.05 level. 
+
+# Analysis 2 - Heterogeneity of Treatment Effects
+
+We begin by defining a simple function of baseline knee pain (+), physical activity (-), and arthritis pain self-efficacy (-) which can be used as a suitability criterion. We begin by examining estimated treatment effect within each strata of this criterion.
+
+```{r strata_simple_tertiles}
+# Filter to MINDSET vs NONE
+suit_df = df %>%
+  filter(t2_Group.ID %in% c(1, 3)) %>% 
+  mutate(Treat = case_when(t2_Group.ID == 1 ~ "treat",
+                           TRUE ~ "no"))
+
+# Define the criterion
+suit_df = suit_df %>%
+  mutate(z_t1_pain = scale(t1_pain)[,1], # Z-score contributing features
+         z_t1_PASE_total = scale(t1_PASE_total)[,1],
+         z_t1_ASE_pain_avg = scale(t1_ASE_pain_avg)[,1],
+         suitability = z_t1_pain - z_t1_PASE_total - z_t1_ASE_pain_avg)
+
+# Stratify and examine ATE (mean difference due to RCT)
+suit_df %>%
+  mutate(tertile = ntile(suitability, 3), # Generate tertiles
+         Strata = case_when(tertile == 1 ~ "Low",
+                            tertile == 2 ~ "Mid",
+                            tertile == 3 ~ "High"), 
+         Strata = factor(Strata, levels = c("Low", "Mid", "High"))) %>%
+  group_by(Strata, Treat) %>%  # Calculate average outcome within groups
+  summarise(avg_SE = mean(Y_ASEp), .groups = "drop_last") %>%
+  pivot_wider(names_from = Treat, values_from = avg_SE) %>%
+  mutate(ATE = treat - no) %>%
+  select(-c(treat, no))
+```
+
+We can also examine the estimated treatment effects on self-efficacy within sub-populations chosen based upon thresholds for each of the contributing baseline features, giving an idea of the potential effects of enrollment rules. 
+
+```{r strata_simple_enrollment}
+ATE_est <- function(df){
+  output = df %>%
+    group_by(Treat) %>%
+    summarise(avg_SE = mean(Y_ASEp)) %>%
+    pivot_wider(names_from = Treat, values_from = avg_SE) %>%
+    mutate(ATE = treat - no) %>%
+    pull(ATE)
+  return(output)
+}
+
+enroll_df = suit_df %>%
+  mutate(pain_thresh = case_when(t1_pain >= median(t1_pain) ~ TRUE, TRUE ~ FALSE),
+         selfeff_thresh = case_when(t1_ASE_pain_avg <= median(t1_ASE_pain_avg) ~ TRUE, 
+                                    TRUE ~ FALSE), 
+         activ_thresh = case_when(t1_PASE_total <= median(t1_PASE_total) ~ TRUE, 
+                                  TRUE ~ FALSE))
+
+highpain_lowselfeff = enroll_df %>%
+  filter(pain_thresh & selfeff_thresh)
+allthree = enroll_df %>%
+  filter(pain_thresh & selfeff_thresh & activ_thresh)
+
+data.frame(Enrollment_Rules = c("All", "High pain & low self-efficacy", "All three"), 
+           Benefit = c(ATE_est(enroll_df),
+                       ATE_est(highpain_lowselfeff),
+                       ATE_est(allthree)),  
+           Qualifying_Percent = 100 * c(1,
+                                        nrow(highpain_lowselfeff) / nrow(enroll_df),
+                                        nrow(allthree) / nrow(enroll_df)))
+```
+
+As an alternative to this fixed weighting, we can calculate the first principal component among these three baseline measures, which defines the axis of greatest variation among them for this population. Similar to the procedure used for the simple criterion, we can  examine the estimated treatment effect within strata of this new, PCA-based criterion.
+
+```{r strata_pca}
+# Calculate the first principal component
+suit_df$PC1 = princomp(suit_df[,c("z_t1_pain", 
+                                  "z_t1_PASE_total",
+                                  "z_t1_ASE_pain_avg")])$scores[,1]
+
+# Stratify and examine ATE (mean difference due to RCT)
+suit_df %>%
+  mutate(tertile = ntile(PC1, 3), # Generate tertiles
+         Strata = case_when(tertile == 1 ~ "Low PC1",
+                            tertile == 2 ~ "Mid PC1",
+                            tertile == 3 ~ "High PC1"), 
+         Strata = factor(Strata, levels = c("Low PC1", "Mid PC1", "High PC1"))) %>%
+  group_by(Strata, Treat) %>%  # Calculate average outcome within groups
+  summarise(avg_SE = mean(Y_ASEp), .groups = "drop_last") %>%
+  pivot_wider(names_from = Treat, values_from = avg_SE) %>%
+  mutate(ATE = treat - no) %>%
+  select(-c(treat, no))
+```
+
+We actually see very similar differences in the stratified ATE estimates according to the first principal component, indicating that the simpler suitability metric is likely capturing much of the same information.
+
+
