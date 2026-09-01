@@ -391,9 +391,10 @@ We begin by assessing mediation of the MINDSET vs NONE treatment effect.
 
 ```{r mind_med_psych_vs_no, message = FALSE}
 # Outcomes of interest
-outcomes = c("t3_TSK_avg", "t3_ASE_pain_avg")
+outcomes = c("t3_TSK_avg", "t3_ASE_pain_avg", "t3_ASE_function_avg")
 out_names = c("Fear of movement",
-              "Pain self-efficacy")
+              "Pain self-efficacy", 
+              "Other symptom self-efficacy")
 
 # Filter data to mindset vs no intervention
 fit_df_vs_none = df %>%
@@ -414,8 +415,11 @@ for(idx in 1:length(outcomes)){
   if(varname == "t3_TSK_avg"){
     form_string = paste0(form_string, " + t1_TSK_avg")
   }
-  else{
+  else if(varname == "t3_ASE_pain_avg"){
     form_string = paste0(form_string, " + t1_ASE_pain_avg")
+  }
+  else{
+    form_string = paste0(form_string, " + t1_ASE_function_avg")
   }
   form = as.formula(paste0(varname, form_string))
   model2 = lm(form, data = fit_df_vs_none)
@@ -430,7 +434,6 @@ for(idx in 1:length(outcomes)){
     sims = 1000
   )
   summ_med = summary(med_res)
-  print(summ_med)
   
   output_vs_none = rbind(output_vs_none,
                  data.frame(outcome = out_names[idx],
@@ -467,8 +470,11 @@ for(idx in 1:length(outcomes)){
   if(varname == "t3_TSK_avg"){
     form_string = paste0(form_string, " + t1_TSK_avg")
   }
-  else{
+  else if(varname == "t3_ASE_pain_avg"){
     form_string = paste0(form_string, " + t1_ASE_pain_avg")
+  }
+  else{
+    form_string = paste0(form_string, " + t1_ASE_function_avg")
   }
   form = as.formula(paste0(varname, form_string))
   model2 = lm(form, data = fit_df_vs_edu)
