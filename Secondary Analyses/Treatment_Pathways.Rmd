@@ -32,21 +32,19 @@ GLAB = c("Mindset", "Education", "No-intervention")
 df = read.csv("../deidentified_data.csv") %>%
   mutate(group = recode_values(t2_Group.ID, from = c(1, 2, 3),
                                to = GLAB), # Group names
+         group = factor(group, levels = GLAB[c(3,2,1)]),
          female = case_when(t1_sex == 1 ~ 1,
                             t1_sex == 0 ~ 0,
                             TRUE ~ NA), # Recode sex
-         chg_PEM_avg = t2_PEM_avg - t1_PEM_avg, # Change scores
          t3_OAcomp = t3_IMI_man + t3_IMI_opp - t3_IMI_cat,
          t2_OAcomp = t2_IMI_man + t2_IMI_opp - t2_IMI_cat,
          t1_OAcomp = t1_IMI_man + t1_IMI_opp - t1_IMI_cat,
          Y_surgery = t3_surgery - t1_surgery,
-         Y_limit = case_when(t1_management_11 - t3_management_11 > 0 ~ 1,
-                             TRUE ~ 0), # Only improvement is a "1"
-         Y_inject = case_when(t1_management_2 - t3_management_2 > 0 ~ 1,
-                              TRUE ~ 0),
+         Y_limit = case_when(t1_management_11 - t3_management_11 > 0 ~ 1, # Improvement is a "1"
+                             t1_management_11 == 0 ~ NA, # Don't consider those not using the strategy
+                             TRUE ~ 0),  # Participants who used the strategy and did not improve
          Y_TSK = t3_TSK_avg - t1_TSK_avg,
          Y_ASEp = t3_ASE_pain_avg - t1_ASE_pain_avg,
-         chg_OAcomp = t2_OAcomp - t1_OAcomp, # Baseline features
          bilateral = case_when(t1_uni.bi == 5 ~ 1,
                                t1_uni.bi == 4 ~ 0,
                                TRUE ~ NA),
@@ -56,49 +54,10 @@ df = read.csv("../deidentified_data.csv") %>%
                               TRUE ~ 0),
          depression = case_when(grepl("10", t1_med.cond) ~ 1, 
                                 TRUE ~ 0),
-         n_comorbid = lengths(strsplit(t1_med.cond, ",")),
-         Y_pase = t3_PASE_total - t1_PASE_total) %>%
-  mutate(group = factor(group, levels = GLAB[c(3,2,1)]))
+         n_comorbid = lengths(strsplit(t1_med.cond, ",")))
 ```
 
-# Analysis 1 - Mindset Mediation of Treatment -> Activity
-
-## Mediation Analysis
-
-We perform a causal mediation analysis to assess change in exercise mindset (time point 2 - time point 1) as a potential mediator of the treatment effect on activity change (time point 3 - time point 1). Rather that including the changes as predictors/outcomes directly, we include the latter measures adjusted for the earlier ones. Uncertainty is assessed using bootstrap inference.
-
-```{r mind_med_activity}
-# Filter data to mindset vs no intervention
-fit_df = df %>%
-  filter(t2_Group.ID %in% c(1, 3)) %>%
-  mutate(Treat = case_when(t2_Group.ID == 1 ~ 1,
-                           TRUE ~ 0))
-
-# Mediator model
-model1 = lm(t2_PEM_avg ~ t1_PEM_avg + Treat, data = fit_df)
-
-# Direct + indirect effect model
-model2 = lm(t3_PASE_total ~ t1_PASE_total + t2_PEM_avg + t1_PEM_avg + Treat, data = fit_df)
-
-# Mediation analysis
-med_res = mediate(model1, model2, treat = "Treat", mediator = "t2_PEM_avg",
-                  boot = TRUE, sims = 1000)
-summary(med_res)
-```
-
-The indirect effect (ACME) is just 6.81, not significantly different from zero at a 0.05 level. The proportion of the activity effect explained by the mindset treatment is estimated to be 26\%. 
-
-## Correlation Assessment
-
-To perform a rough assessment of why this might be the case, we can examine the correlation between mindset change (time point 2 - time point 1) and activity change (time point 3 - time point 1) to see whether there is evidence of a relationship between the mediator and the outcome.
-
-```{r mind_med_check}
-cor(fit_df$chg_PEM_avg, fit_df$Y_pase)
-```
-
-The low correlation is indicative of a weak relationship between these two measures, likely interrupting the indirect mediation path through mindset change.
-
-# Analysis 2 - Mindset Mediation of Treatment -> Mindset Outcomes
+# Mindset Mediation of Treatment -> Mindset Outcomes
 
 ## Mediation
 
@@ -124,14 +83,21 @@ for(idx in 1:length(outcomes)){
   varname = outcomes[idx]
   
   # Mediator model
-  model1 = glm(t2_OAcomp ~ t1_OAcomp + Treat, data = fit_df_vs_none, family = "gaussian")
+  if(varname == "Y_limit"){
+    fit_df = fit_df_vs_none %>%
+      filter(!is.na(Y_limit))
+  }
+  else{
+    fit_df = fit_df_vs_none
+  }
+  model1 = glm(t2_OAcomp ~ t1_OAcomp + Treat, data = fit_df, family = "gaussian")
   
   # Direct and indirect effects model (binary outcome)
   form_string = "~ t2_OAcomp + t1_OAcomp + Treat"
   if(varname == "t3_surgery"){ form_string = paste0(form_string, " + t1_surgery") }
   form = as.formula(paste0(varname, form_string))
-  fam = ifelse(varname %in% c("Y_limit", "Y_inject"), "binomial", "gaussian")
-  model2 = glm(form, data = fit_df_vs_none, family = fam)
+  fam = ifelse(varname == "Y_limit", "binomial", "gaussian")
+  model2 = glm(form, data = fit_df, family = fam)
   
   # Mediation analysis
   med_res = mediate(
@@ -171,15 +137,23 @@ for(idx in 1:length(outcomes)){
   # Variable name
   varname = outcomes[idx]
   
+  if(varname == "Y_limit"){
+    fit_df = fit_df_vs_edu %>%
+      filter(!is.na(Y_limit))
+  }
+  else{
+    fit_df = fit_df_vs_edu
+  }
+  
   # Mediator model
-  model1 = glm(t2_OAcomp ~ t1_OAcomp + Treat, data = fit_df_vs_edu, family = "gaussian")
+  model1 = glm(t2_OAcomp ~ t1_OAcomp + Treat, data = fit_df, family = "gaussian")
   
   # Direct and indirect effects model (binary outcome)
   form_string = "~ t2_OAcomp + t1_OAcomp + Treat"
   if(varname == "t3_surgery"){ form_string = paste0(form_string, " + t1_surgery") }
   form = as.formula(paste0(varname, form_string))
-  fam = ifelse(varname %in% c("Y_limit", "Y_inject"), "binomial", "gaussian")
-  model2 = glm(form, data = fit_df_vs_edu, family = fam)
+  fam = ifelse(varname == "Y_limit", "binomial", "gaussian")
+  model2 = glm(form, data = fit_df, family = fam)
   
   # Mediation analysis
   med_res = mediate(
@@ -203,7 +177,7 @@ for(idx in 1:length(outcomes)){
 output_vs_edu
 ```
 
-We see that mindset mediates the treatment effects (MINDSET vs EDUCATION) on both outcomes here as well, though the "imposing physical limitations" outcome is mediated much less and the indirect effect is no longer statistically significant from zero at a 0.05 level.
+We see that mindset mediates the treatment effects (MINDSET vs EDUCATION) on both outcomes here as well, though the "imposing physical limitations" outcome is mediated much less.
 
 ## Multiple Testing Adjustment
 
@@ -229,7 +203,7 @@ view_df %>%
 
 After Benjamini-Hochberg and Bonferroni correction, there is still significant mediation of the MINDSET vs NONE treatment effect for both outcomes, as well as of the MINDSET vs EDUCATION treatment effect for the "perceived need for surgery" outcome at the 0.05 level. 
 
-# Analysis 3 - Mindset Mediation of Treatment -> Psychosocial Outcomes
+# Mindset Mediation of Treatment -> Psychosocial Outcomes
 
 ## Mediation
 
