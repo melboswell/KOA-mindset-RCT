@@ -22,9 +22,8 @@ First, all necessary libraries are imported, the data is read in, and all necess
 library(tidyverse)
 library(mediation)
 library(lavaan)
-library(multcomp)
 library(knitr)
-library(lme4)
+library(ggtext)
 select = dplyr::select
 
 # Next, reading the data
@@ -57,140 +56,128 @@ df = read.csv("../deidentified_data.csv") %>%
          n_comorbid = lengths(strsplit(t1_med.cond, ",")))
 ```
 
-# Mindset Mediation of Treatment -> Mindset Outcomes
+# Primary Analyses: OA Mindset Mediation of 5 Outcomes
 
 ## Mediation
 
-We perform separate causal mediation analyses to assess mindset change (time point 2 - time point 1) as a potential mediator of the treatment effect on mindset-specific outcomes. These outcomes include difference in perceived need for surgery (time point 3 - time point 1) and removal of self-imposed physical limitation (time point 1 to time point 3). Generalized linear models are used to model the last two (binary) outcomes. Uncertainty is assessed using bootstrap inference.
+We perform separate causal mediation analyses to assess mindset change (time point 2 - time point 1) as a potential mediator of the treatment effect on 5 outcomes which were impacted by the treatment. These outcomes include difference in perceived need for surgery (time point 3 - time point 1), removal of self-imposed physical limitation (time point 1 to time point 3), fear of movement change, change in pain self-efficacy (time point 3 - time point 1), and change in other symptom self-efficacy (time point 3 - time point 1). 
 
-We begin by assessing mediation of the MINDSET vs NONE treatment effect.
+We assess mediation of the movement from both the no intervention and education arms to the mindset treatment arm. Generalized linear models are used to model the binary removal of self-imposed physical limitation outcome. Uncertainty is assessed using bootstrap inference.
 
-```{r mind_med_outcomes_vs_no, message = FALSE}
+```{r mediate_primary, message = FALSE}
 # Outcomes of interest
-outcomes = c("t3_surgery", "Y_limit")
+outcomes = c("t3_surgery", "Y_limit", "t3_TSK_avg", "t3_ASE_pain_avg", "t3_ASE_function_avg")
 out_names = c("Perceived need for surgery",
-              "Imposing physical limitations")
+              "Imposing physical limitations", 
+              "Fear of movement",
+              "Pain self-efficacy", 
+              "Other symptom self-efficacy")
 
-# Filter data to mindset vs no intervention
-fit_df_vs_none = df %>%
-  filter(t2_Group.ID %in% c(1, 3)) %>%
-  mutate(Treat = case_when(t2_Group.ID == 1 ~ 1,
-                           TRUE ~ 0))
-
-output_vs_none = data.frame()
+primary_df = data.frame()
 for(idx in 1:length(outcomes)){
-  # Variable name
   varname = outcomes[idx]
   
-  # Mediator model
+  # Data create
   if(varname == "Y_limit"){
-    fit_df = fit_df_vs_none %>%
+    fit_df = df %>%
       filter(!is.na(Y_limit))
   }
   else{
-    fit_df = fit_df_vs_none
-  }
-  model1 = glm(t2_OAcomp ~ t1_OAcomp + Treat, data = fit_df, family = "gaussian")
-  
-  # Direct and indirect effects model (binary outcome)
-  form_string = "~ t2_OAcomp + t1_OAcomp + Treat"
-  if(varname == "t3_surgery"){ form_string = paste0(form_string, " + t1_surgery") }
-  form = as.formula(paste0(varname, form_string))
-  fam = ifelse(varname == "Y_limit", "binomial", "gaussian")
-  model2 = glm(form, data = fit_df, family = fam)
-  
-  # Mediation analysis
-  med_res = mediate(
-    model1,
-    model2,
-    treat = "Treat",
-    mediator = "t2_OAcomp",
-    boot = TRUE,
-    sims = 1000
-  )
-  summ_med = summary(med_res)
-  
-  output_vs_none = rbind(output_vs_none,
-                 data.frame(outcome = out_names[idx],
-                      indirect = summ_med$d0,
-                      CI_LB = unname(summ_med$d0.ci[1]),
-                      CI_UB = unname(summ_med$d0.ci[2]),
-                      p_value = summ_med$d0.p,
-                      Percent_mediated = summ_med$n0*100))
-}
-output_vs_none
-```
-
-We see that mindset mediates the treatment effect (MINDSET vs NONE) on both "perceived need for surgery" and "imposing physical limitations". Note that the "percent_mediated" column just reports the relative size of the mediation effect relative to the total effect, so it can fall outside of the 0\%-100\% range. 
-
-We can continue by similarly assessing mediation of the MINDSET vs EDUCATION treatment effect for the same outcomes.
-
-```{r mind_med_outcomes_vs_education, message = FALSE}
-# Filter data to mindset vs education
-fit_df_vs_edu = df %>%
-  filter(t2_Group.ID %in% c(1, 2)) %>%
-  mutate(Treat = case_when(t2_Group.ID == 1 ~ 1,
-                           TRUE ~ 0))
-
-output_vs_edu = data.frame()
-for(idx in 1:length(outcomes)){
-  # Variable name
-  varname = outcomes[idx]
-  
-  if(varname == "Y_limit"){
-    fit_df = fit_df_vs_edu %>%
-      filter(!is.na(Y_limit))
-  }
-  else{
-    fit_df = fit_df_vs_edu
+    fit_df = df
   }
   
   # Mediator model
-  model1 = glm(t2_OAcomp ~ t1_OAcomp + Treat, data = fit_df, family = "gaussian")
+  model1 = glm(t2_OAcomp ~ t1_OAcomp + group, data = fit_df, family = "gaussian")
   
   # Direct and indirect effects model (binary outcome)
-  form_string = "~ t2_OAcomp + t1_OAcomp + Treat"
-  if(varname == "t3_surgery"){ form_string = paste0(form_string, " + t1_surgery") }
+  add_form = switch(varname, 
+                    t3_surgery = "+ t1_surgery",
+                    t3_TSK_avg = "+ t1_TSK_avg",
+                    t3_ASE_pain_avg = "+ t1_ASE_pain_avg",
+                    t3_ASE_function_avg = "+ t1_ASE_function_avg", 
+                    Y_limit = "")
+  form_string = paste0("~ t2_OAcomp + t1_OAcomp + group", add_form)
+  
   form = as.formula(paste0(varname, form_string))
   fam = ifelse(varname == "Y_limit", "binomial", "gaussian")
+  
   model2 = glm(form, data = fit_df, family = fam)
   
   # Mediation analysis
-  med_res = mediate(
+  contrast_no = mediate(
     model1,
     model2,
-    treat = "Treat",
+    treat = "group",
     mediator = "t2_OAcomp",
-    boot = TRUE,
-    sims = 1000
+    control.value = "No-intervention",
+    treat.value = "Mindset",
+    boot = T,
+    sims = 100000,
+    parallel = "multicore",
+    ncpus = 8
   )
-  summ_med = summary(med_res)
   
-  output_vs_edu = rbind(output_vs_edu,
-                 data.frame(outcome = out_names[idx],
-                      indirect = summ_med$d0,
-                      CI_LB = unname(summ_med$d0.ci[1]),
-                      CI_UB = unname(summ_med$d0.ci[2]),
-                      p_value = summ_med$d0.p,
-                      Percent_mediated = summ_med$n0*100))
+  summ_no = summary(contrast_no)
+  output_no = data.frame(
+    total = summ_no$tau.coef,
+    direct = summ_no$z0,
+    indirect = summ_no$d0,
+    CI_LB = unname(summ_no$d0.ci[1]),
+    CI_UB = unname(summ_no$d0.ci[2]),
+    p_value = summ_no$d0.p,
+    Percent_mediated = summ_no$n0 * 100, 
+    N_obs = summ_no$nobs
+  )
+  
+  contrast_edu = mediate(
+    model1,
+    model2,
+    treat = "group",
+    mediator = "t2_OAcomp",
+    control.value = "Education",
+    treat.value = "Mindset",
+    boot = T,
+    sims = 100000, 
+    parallel = "multicore",
+    ncpus = 8
+  )
+  
+  summ_edu = summary(contrast_edu)
+  output_edu = data.frame(
+    total = summ_edu$tau.coef,
+    direct = summ_edu$z0,
+    indirect = summ_edu$d0,
+    CI_LB = unname(summ_edu$d0.ci[1]),
+    CI_UB = unname(summ_edu$d0.ci[2]),
+    p_value = summ_edu$d0.p,
+    Percent_mediated = summ_edu$n0 * 100, 
+    N_obs = summ_edu$nobs
+  )
+  
+  outcome_df = rbind(
+    output_no %>% mutate(Comparison = "No intervention"),
+    output_edu %>% mutate(Comparison = "Education")
+  ) %>%
+    mutate(Outcome = out_names[idx])
+  
+  primary_df = rbind(primary_df, outcome_df)
 }
-output_vs_edu
+
+primary_df %>%
+  select(Comparison, Outcome, total, direct, indirect, CI_LB, CI_UB, p_value, Percent_mediated, N_obs) %>%
+  arrange(Comparison, Outcome)
 ```
 
-We see that mindset mediates the treatment effects (MINDSET vs EDUCATION) on both outcomes here as well, though the "imposing physical limitations" outcome is mediated much less.
+We see that mindset mediates the treatment effects for both contrasts and all outcomes quite strongly. Note that the "percent_mediated" column just reports the relative size of the mediation effect relative to the total effect, so it can fall outside of the 0\%-100\% range. 
 
 ## Multiple Testing Adjustment
 
 We can perform a simple multiple testing adjustment of the 6 raw p-values so far estimated, grouped together as part of examining the potential exercise mindset mediation of the treatment effect(s) on mindset-specific outcomes. 
 
-```{r mind_med_padj}
+```{r mult_adjust_primary}
 # Join outputs of the previous two analyses
-view_df = rbind(output_vs_none %>% 
-                  select(outcome, p_value) %>%
-                  mutate(Reference = "None"), 
-                output_vs_edu %>% 
-                  select(outcome, p_value) %>%
-                  mutate(Reference = "Education"))
+view_df = primary_df %>%
+  select(Comparison, Outcome, p_value)
 
 # Adjust the p-values using Benjamini-Hochberg and Bonferroni
 view_df$BH = p.adjust(view_df$p_value, method = "BH")
@@ -201,150 +188,46 @@ view_df %>%
   arrange(p_value)
 ```
 
-After Benjamini-Hochberg and Bonferroni correction, there is still significant mediation of the MINDSET vs NONE treatment effect for both outcomes, as well as of the MINDSET vs EDUCATION treatment effect for the "perceived need for surgery" outcome at the 0.05 level. 
+After Benjamini-Hochberg and Bonferroni correction, all indirect effects are still statistically significant at the 0.05 level.
 
-# Mindset Mediation of Treatment -> Psychosocial Outcomes
+## Visualization
 
-## Mediation
+```{r figures_primary}
+est_df = rbind(
+  primary_df %>% 
+    select(Comparison, Outcome, indirect, CI_LB, CI_UB) %>%
+    rename(Est = indirect) %>%
+    mutate(Measure = "Indirect"), 
+  primary_df %>%
+    select(Comparison, Outcome, direct, total) %>%
+    pivot_longer(-c(Comparison, Outcome), names_to = "Measure", values_to = "Est") %>%
+    mutate(Measure = case_when(Measure == "direct" ~ "Direct", 
+                               TRUE ~ "Total"), 
+           CI_LB = NA, CI_UB = NA)
+  ) %>%
+  mutate(Measure = factor(Measure, levels = c("Total", "Direct", "Indirect")))
 
-We perform separate causal mediation analyses to assess mindset change (time point 2 - time point 1) as a potential mediator of the treatment effect on psycho-social outcomes. These outcomes include fear of movement change and change in pain self-efficacy (time point 3 - time point 1). Uncertainty is estimated using bootstrap inference.
-
-We begin by assessing mediation of the MINDSET vs NONE treatment effect.
-
-```{r mind_med_psych_vs_no, message = FALSE}
-# Outcomes of interest
-outcomes = c("t3_TSK_avg", "t3_ASE_pain_avg", "t3_ASE_function_avg")
-out_names = c("Fear of movement",
-              "Pain self-efficacy", 
-              "Other symptom self-efficacy")
-
-# Filter data to mindset vs no intervention
-fit_df_vs_none = df %>%
-  filter(t2_Group.ID %in% c(1, 3)) %>%
-  mutate(Treat = case_when(t2_Group.ID == 1 ~ 1,
-                           TRUE ~ 0))
-
-output_vs_none = data.frame()
-for(idx in 1:length(outcomes)){
-  # Variable name
-  varname = outcomes[idx]
-  
-  # Mediator model
-  model1 = lm(t2_OAcomp ~ t1_OAcomp + Treat, data = fit_df_vs_none)
-  
-  # Direct and indirect effects model (binary outcome)
-  form_string = "~ t2_OAcomp + t1_OAcomp + Treat"
-  if(varname == "t3_TSK_avg"){
-    form_string = paste0(form_string, " + t1_TSK_avg")
-  }
-  else if(varname == "t3_ASE_pain_avg"){
-    form_string = paste0(form_string, " + t1_ASE_pain_avg")
-  }
-  else{
-    form_string = paste0(form_string, " + t1_ASE_function_avg")
-  }
-  form = as.formula(paste0(varname, form_string))
-  model2 = lm(form, data = fit_df_vs_none)
-  
-  # Mediation analysis
-  med_res = mediate(
-    model1,
-    model2,
-    treat = "Treat",
-    mediator = "t2_OAcomp",
-    boot = TRUE,
-    sims = 1000
-  )
-  summ_med = summary(med_res)
-  
-  output_vs_none = rbind(output_vs_none,
-                 data.frame(outcome = out_names[idx],
-                      indirect = summ_med$d0,
-                      CI_LB = unname(summ_med$d0.ci[1]),
-                      CI_UB = unname(summ_med$d0.ci[2]),
-                      p_value = summ_med$d0.p,
-                      Percent_mediated = summ_med$n0*100))
-}
-output_vs_none
+pd = position_dodge(width = 0.5, orientation = "y")
+ref_lines = data.frame(Outcome = out_names, 
+                       xint = c(0,1,0,0,0))
+est_df %>%
+  mutate(Est = case_when(Outcome == "Imposing physical limitations" ~ exp(Est), 
+                         TRUE ~ Est), 
+         CI_UB = case_when(Outcome == "Imposing physical limitations" ~ exp(CI_UB), 
+                         TRUE ~ CI_UB),
+         CI_LB = case_when(Outcome == "Imposing physical limitations" ~ exp(CI_LB), 
+                         TRUE ~ CI_LB)) %>%
+  ggplot(aes(x = Est, y = Comparison, group = Measure, color = Measure)) + 
+  geom_point(position = pd) +
+  geom_errorbar(aes(xmin = CI_LB, xmax = CI_UB), width = 0.1, 
+                position = pd) +
+  geom_vline(data = ref_lines, aes(xintercept = xint), linetype = "dashed") + 
+  theme_bw() + 
+  theme(axis.text.y = element_text(angle = 45, vjust = 0.5, hjust = 1), 
+        plot.caption = element_textbox_simple(margin = margin(t = 10)), 
+        legend.position = "bottom") + 
+  facet_wrap(.~Outcome, scales = "free_x", nrow = 1) + 
+  labs(x = "Mindset Effect", y = "Comparison Group", caption = "Note that x-axes are linear for all outcomes other than Imposing physical limitations, for which the effects are expressed as odds ratios.", 
+       color = "")
 ```
 
-We see that mindset meaningfully mediates the treatment effect (MINDSET vs NONE) on both "fear of movement" and "pain self-efficacy".
-
-We can continue by similarly assessing mediation of the MINDSET vs EDUCATION treatment effect for the same outcomes.
-
-```{r mind_med_psych_vs_edu, message = FALSE}
-# Filter data to mindset vs education
-fit_df_vs_edu = df %>%
-  filter(t2_Group.ID %in% c(1, 2)) %>%
-  mutate(Treat = case_when(t2_Group.ID == 1 ~ 1,
-                           TRUE ~ 0))
-
-output_vs_edu = data.frame()
-for(idx in 1:length(outcomes)){
-  # Variable name
-  varname = outcomes[idx]
-  
-  # Mediator model
-  model1 = lm(t2_OAcomp ~ t1_OAcomp + Treat, data = fit_df_vs_edu)
-  
-  # Direct and indirect effects model (binary outcome)
-  form_string = "~ t2_OAcomp + t1_OAcomp + Treat"
-  if(varname == "t3_TSK_avg"){
-    form_string = paste0(form_string, " + t1_TSK_avg")
-  }
-  else if(varname == "t3_ASE_pain_avg"){
-    form_string = paste0(form_string, " + t1_ASE_pain_avg")
-  }
-  else{
-    form_string = paste0(form_string, " + t1_ASE_function_avg")
-  }
-  form = as.formula(paste0(varname, form_string))
-  model2 = lm(form, data = fit_df_vs_edu)
-  
-  # Mediation analysis
-  med_res = mediate(
-    model1,
-    model2,
-    treat = "Treat",
-    mediator = "t2_OAcomp",
-    boot = TRUE,
-    sims = 1000
-  )
-  summ_med = summary(med_res)
-  
-  output_vs_edu = rbind(output_vs_edu,
-                 data.frame(outcome = out_names[idx],
-                      indirect = summ_med$d0,
-                      CI_LB = unname(summ_med$d0.ci[1]),
-                      CI_UB = unname(summ_med$d0.ci[2]),
-                      p_value = summ_med$d0.p,
-                      Percent_mediated = summ_med$n0*100))
-}
-output_vs_edu
-```
-
-The mediation is similarly strong when considering the MINDSET vs EDUCATION treatment effect, with similar, slightly higher, proportions of mediation.
-
-## Multiple Testing Adjustment
-
-We can again perform a multiple-testing adjustment, grouping together the 4 tests (2 outcomes x 2 treatment effects) as part of examining the potential exercise mindset mediation of the treatment effect(s) on psychosocial outcomes. 
-
-```{r psych_med_padj}
-# Join outputs of the previous two analyses
-view_df = rbind(output_vs_none %>% 
-                  select(outcome, p_value) %>%
-                  mutate(Reference = "None"), 
-                output_vs_edu %>% 
-                  select(outcome, p_value) %>%
-                  mutate(Reference = "Education"))
-
-# Adjust the p-values using Benjamini-Hochberg and Bonferroni
-view_df$BH = p.adjust(view_df$p_value, method = "BH")
-view_df$Bonferroni = p.adjust(view_df$p_value, method = "bonferroni")
-
-# Visualize
-view_df %>%
-  arrange(p_value)
-```
-
-After Benjamini-Hochberg correction, all mediation p-values are incredibly small, indicating significance at the 0.05 level. Even under the much more conservative Bonferroni correction, all mediations are significant at the same level.
