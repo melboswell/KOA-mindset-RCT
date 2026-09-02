@@ -172,7 +172,7 @@ We see that mindset mediates the treatment effects for both contrasts and all ou
 
 ## Multiple Testing Adjustment
 
-We can perform a simple multiple testing adjustment of the 6 raw p-values so far estimated, grouped together as part of examining the potential exercise mindset mediation of the treatment effect(s) on mindset-specific outcomes. 
+We can perform a simple multiple testing adjustment of the 10 raw p-values so far estimated, grouped together as part of examining the potential exercise mindset mediation of the treatment effect(s) the chosen outcomes. 
 
 ```{r mult_adjust_primary}
 # Join outputs of the previous two analyses
@@ -227,7 +227,164 @@ est_df %>%
         plot.caption = element_textbox_simple(margin = margin(t = 10)), 
         legend.position = "bottom") + 
   facet_wrap(.~Outcome, scales = "free_x", nrow = 1) + 
-  labs(x = "Mindset Effect", y = "Comparison Group", caption = "Note that x-axes are linear for all outcomes other than Imposing physical limitations, for which the effects are expressed as odds ratios.", 
+  labs(x = "Effect Sizes", y = "Comparison Group", caption = "Note that x-axes are linear for all outcomes other than Imposing physical limitations, for which the effects are expressed as odds ratios.", 
        color = "")
 ```
 
+# Secondary Analyses: OA Mindset Mediation in the Context of OA Knowledge
+
+We can re-run these same analyses including OA knowledge as a co-mediator to assess mediation of mindset given a particular change in OA knowledge also attributable to the treatment
+
+```{r mediate_secondary, message = FALSE}
+model_comps = c("med_OAcomp_No", "med_OAcomp_Edu", 
+                "med_KOAS_No", "med_KOAS_Edu", 
+                "total_both_No", "total_both_Edu")
+
+build_secondary = function(outcome){
+  mod_spec = paste0('
+  # Mediator models
+  t2_OAcomp ~ a1 * No + a2 * Edu + b * t1_OAcomp
+  t2_KOAS ~ c1 * No + c2 * Edu + d * t1_KOAS
+  
+  # Outcome model
+  ', outcome, '~ e1 * No + e2 * Edu + f1 * t2_OAcomp + f2 * t1_OAcomp + g1 * t2_KOAS + g2 * t1_KOAS
+  
+  # Indirect effects
+  med_OAcomp_No := a1 * f1
+  med_OAcomp_Edu := a2 * f1
+  
+  med_KOAS_No := c1 * g1
+  med_KOAS_Edu := c2 * g1
+  
+  # Total effects
+  total_both_No := e1 + a1 * f1 + c1 * g1
+  total_both_Edu := e2 + a2 * f1 + c2 * g1
+  
+  # Allow correlation between mediators
+  t2_OAcomp ~~ t2_KOAS
+  ')
+  
+  return(mod_spec)
+}
+
+secondary_df = data.frame()
+for(idx in 1:length(outcomes)){
+  # Variable and corresponding SEM model
+  varname = outcomes[idx]
+  model_spec = build_secondary(varname)
+  
+  # Create treatment group dummy variables
+  fit_df = df %>%
+    mutate(
+      Edu = case_when(group == "Education" ~ 1, TRUE ~ 0),
+      No = case_when(group == "No-intervention" ~ 1, TRUE ~ 0)
+    )
+  
+  # Separate if binary outcome
+  if(varname == "Y_limit"){
+    fit_df = fit_df %>%
+      filter(!is.na(Y_limit)) %>%
+      mutate(Y_limit = ordered(Y_limit))
+    
+    fit = sem(
+      model = model_spec,
+      data = fit_df,
+      se = "robust"
+    )
+  }
+  else{
+    fit = sem(
+      model = model_spec,
+      data = fit_df,
+      parallel = "multicore",
+      ncpus = 8,
+      se = "boot",
+      bootstrap = 5000
+    )
+  }
+  
+  outcome_df = parameterEstimates(fit, boot.ci.type = "bca.simple") %>%
+    filter(label %in% model_comps) %>%
+    select(label, est, pvalue, ci.lower, ci.upper) %>%
+    separate_wider_delim(label, delim = "_", names = c("Type", "Mediator", "Comparison")) %>%
+    mutate(Comparison = case_when(Comparison == "No" ~ "No-intervention", 
+                                  TRUE ~ "Education"), 
+           Effect = case_when(Mediator == "OAcomp" ~ "OA Mindset", 
+                              Mediator == "KOAS" ~ "OA Knowledge", 
+                              TRUE ~ "Total"), 
+           Outcome = out_names[idx],
+           est = -1 * est, CI_LB = -1 * ci.upper, CI_UB = -1 * ci.lower) %>%
+    select(Comparison, Outcome, Effect, est, CI_LB, CI_UB, pvalue)
+  
+  secondary_df = rbind(secondary_df, outcome_df)
+}
+
+secondary_df %>%
+  arrange(Effect, Comparison, Outcome)
+```
+
+Even in the presence of mediation from changes in OA knowledge, there is a statistically significant indirect effect indicating mediation of OA mindset on all of the outcomes except the perceived need for surgery.
+
+## Multiple Testing Adjustment
+
+We can perform a simple multiple testing adjustment of the 10 raw p-values so far estimated for each potential mediator, grouped together as part of examining the potential exercise mindset/OA knowledge mediation of the treatment effect(s) the chosen outcomes. 
+
+```{r mult_adjust_secondary}
+# Join outputs of the previous two analyses
+view_df_OAcomp = secondary_df %>%
+  filter(Effect == "OA Mindset") %>%
+  select(Comparison, Outcome, Effect, pvalue)
+
+view_df_OAknow = secondary_df %>%
+  filter(Effect == "OA Knowledge") %>%
+  select(Comparison, Outcome, Effect, pvalue)
+
+# Adjust the p-values using Benjamini-Hochberg and Bonferroni
+view_df_OAcomp$BH = p.adjust(view_df_OAcomp$pvalue, method = "BH")
+view_df_OAcomp$Bonferroni = p.adjust(view_df_OAcomp$pvalue, method = "bonferroni")
+
+view_df_OAknow$BH = p.adjust(view_df_OAknow$pvalue, method = "BH")
+view_df_OAknow$Bonferroni = p.adjust(view_df_OAknow$pvalue, method = "bonferroni")
+
+# Visualize
+rbind(view_df_OAknow, view_df_OAcomp) %>%
+  arrange(Effect, Comparison, Outcome)
+```
+
+After Benjamini-Hochberg and Bonferroni correction, indirect effects for the mindset mediation of treatment effect on imposing physical limitations lose statistical significant at the 0.05 level vs both of the other arms. However, all other indirect effects that were previously significant are still statistically significant at the 0.05 level.
+
+## Visualization
+
+```{r figures_secondary}
+est_df = secondary_df %>%
+  select(-c(pvalue)) %>%
+  mutate(CI_LB = case_when(Effect == "OA Mindset" ~ CI_LB, 
+                              TRUE ~ NA), 
+         CI_UB = case_when(Effect == "OA Mindset" ~ CI_UB, 
+                              TRUE ~ NA),
+         Effect = factor(Effect, levels = c("Total", "OA Knowledge", "OA Mindset"))) %>%
+  rename(Est = est, Measure = Effect)
+
+pd = position_dodge(width = 0.5, orientation = "y")
+ref_lines = data.frame(Outcome = out_names, 
+                       xint = c(0,1,0,0,0))
+est_df %>%
+  mutate(Est = case_when(Outcome == "Imposing physical limitations" ~ exp(Est), 
+                         TRUE ~ Est), 
+         CI_UB = case_when(Outcome == "Imposing physical limitations" ~ exp(CI_UB), 
+                         TRUE ~ CI_UB),
+         CI_LB = case_when(Outcome == "Imposing physical limitations" ~ exp(CI_LB), 
+                         TRUE ~ CI_LB)) %>%
+  ggplot(aes(x = Est, y = Comparison, group = Measure, color = Measure)) + 
+  geom_point(position = pd) +
+  geom_errorbar(aes(xmin = CI_LB, xmax = CI_UB), width = 0.1, 
+                position = pd) +
+  geom_vline(data = ref_lines, aes(xintercept = xint), linetype = "dashed") + 
+  theme_bw() + 
+  theme(axis.text.y = element_text(angle = 45, vjust = 0.5, hjust = 1), 
+        plot.caption = element_textbox_simple(margin = margin(t = 10)), 
+        legend.position = "bottom") + 
+  facet_wrap(.~Outcome, scales = "free_x", nrow = 1) + 
+  labs(x = "Effect Sizes", y = "Comparison Group", caption = "Note that x-axes are linear for all outcomes other than Imposing physical limitations, for which the effects are expressed as odds ratios.", 
+       color = "")
+```
