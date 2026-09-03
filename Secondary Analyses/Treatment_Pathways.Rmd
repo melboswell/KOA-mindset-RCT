@@ -24,6 +24,7 @@ library(mediation)
 library(lavaan)
 library(knitr)
 library(ggtext)
+library(corrplot)
 select = dplyr::select
 
 # Next, reading the data
@@ -56,7 +57,7 @@ df = read.csv("../deidentified_data.csv") %>%
          n_comorbid = lengths(strsplit(t1_med.cond, ",")))
 ```
 
-# Primary Analyses: OA Mindset Mediation of 5 Outcomes
+# OA Mindset Mediation of Treatment Effects on 5 Outcomes
 
 ## Mediation
 
@@ -231,7 +232,7 @@ est_df %>%
        color = "")
 ```
 
-# Secondary Analyses: OA Mindset Mediation in the Context of OA Knowledge
+# OA Mindset and OA Knowledge Joint Mediation
 
 We can re-run these same analyses including OA knowledge as a co-mediator to assess mediation of mindset given a particular change in OA knowledge also attributable to the treatment
 
@@ -358,12 +359,9 @@ After Benjamini-Hochberg and Bonferroni correction, indirect effects for the min
 ```{r figures_secondary}
 est_df = secondary_df %>%
   select(-c(pvalue)) %>%
-  mutate(CI_LB = case_when(Effect == "OA Mindset" ~ CI_LB, 
-                              TRUE ~ NA), 
-         CI_UB = case_when(Effect == "OA Mindset" ~ CI_UB, 
-                              TRUE ~ NA),
-         Effect = factor(Effect, levels = c("Total", "OA Knowledge", "OA Mindset"))) %>%
-  rename(Est = est, Measure = Effect)
+  mutate(Effect = factor(Effect, levels = c("Total", "OA Knowledge", "OA Mindset"))) %>%
+  rename(Est = est, Measure = Effect) %>%
+  filter(Measure != "Total")
 
 pd = position_dodge(width = 0.5, orientation = "y")
 ref_lines = data.frame(Outcome = out_names, 
@@ -388,3 +386,4 @@ est_df %>%
   labs(x = "Effect Sizes", y = "Comparison Group", caption = "Note that x-axes are linear for all outcomes other than Imposing physical limitations, for which the effects are expressed as odds ratios.", 
        color = "")
 ```
+
