@@ -446,3 +446,265 @@ est_df %>%
        color = "")
 ```
 
+# Exploratory Latent Factor Models
+
+To understand what might be leading to the impact of both mindset and the education arms on physical activity, we fit mediation models which include latent factors aiming to incorporate mindset variables, fear of movement, and self-efficacy variates collected at the various time points. We begin by examining how many latent factors will be appropriate for this data. We proceed under the assumption that the factor weights will be consistent over time.
+
+```{r latent_numfact, warning=FALSE}
+factor_vars = c(paste0("t", 1:3, "_OAcomp"), 
+                paste0("t", 1:3, "_KOAS"), 
+                paste0("t", 1:3, "_PEM_avg"), 
+                paste0("t", 1:3, "_TSK_avg"), 
+                paste0("t", 1:3, "_ASE_pain_avg"), 
+                paste0("t", 1:3, "_ASE_function_avg"), 
+                paste0("t", c(1,3), "_PASE_total"))
+
+# Rescale all variables for numerical stability 0-10 scale
+{
+  max_OAcomp = max(df %>% select(all_of(factor_vars[c(1,2,3)])) %>% as.matrix() %>% c()) / 10
+  max_KOAS = max(df %>% select(all_of(factor_vars[c(4,5,6)])) %>% as.matrix() %>% c()) / 10
+  max_PEM = max(df %>% select(all_of(factor_vars[c(7,8,9)])) %>% as.matrix() %>% c()) / 10
+  max_TSK = max(df %>% select(all_of(factor_vars[c(10,11,12)])) %>% as.matrix() %>% c()) / 10
+  max_pain = max(df %>% select(all_of(factor_vars[c(13,14,15)])) %>% as.matrix() %>% c()) / 10
+  max_func = max(df %>% select(all_of(factor_vars[c(16,17,18)])) %>% as.matrix() %>% c()) / 10
+  max_PASE = max(df %>% select(all_of(factor_vars[c(19,20)])) %>% as.matrix() %>% c()) / 10
+}
+
+# Data for latent modeling
+latent_df = df %>%
+  mutate(
+    Edu = case_when(group == "Education" ~ 1, TRUE ~ 0),
+    No = case_when(group == "No-intervention" ~ 1, TRUE ~ 0),
+    across(all_of(factor_vars[c(1,2,3)]), ~ .x/max_OAcomp), 
+    across(all_of(factor_vars[c(4,5,6)]), ~ .x/max_KOAS),
+    across(all_of(factor_vars[c(7,8,9)]), ~ .x/max_PEM),
+    across(all_of(factor_vars[c(10,11,12)]), ~ .x/max_TSK),
+    across(all_of(factor_vars[c(13,14,15)]), ~ .x/max_pain),
+    across(all_of(factor_vars[c(16,17,18)]), ~ .x/max_func),
+    across(all_of(factor_vars[c(19,20)]), ~ .x/max_PASE))  %>%
+  select(all_of(c(factor_vars, "Edu", "No", "group")))
+
+# ELFA models
+factor_1 = '
+  # Latent factor - time 3
+  f1_t3 =~ l11 * t3_OAcomp + l12 * t3_KOAS + l13 * t3_PEM_avg +
+           l14 * t3_TSK_avg + l15 * t3_ASE_pain_avg + l16 * t3_ASE_function_avg
+
+  # Latent factor - time 2
+  f1_t2 =~ l11 * t2_OAcomp + l12 * t2_KOAS + l13 * t2_PEM_avg +
+           l14 * t2_TSK_avg + l15 * t2_ASE_pain_avg + l16 * t2_ASE_function_avg
+
+  # Latent factor - time 1
+  f1_t1 =~ l11 * t1_OAcomp + l12 * t1_KOAS + l13 * t1_PEM_avg +
+           l14 * t1_TSK_avg + l15 * t1_ASE_pain_avg + l16 * t1_ASE_function_avg
+  
+  # Correlated residuals (factors do not capture all autocorrelated variability)
+  t3_OAcomp ~~ t2_OAcomp + t1_OAcomp; t2_OAcomp ~~ t1_OAcomp
+  t3_KOAS ~~ t2_KOAS + t1_KOAS; t2_KOAS ~~ t1_KOAS
+  t3_PEM_avg ~~ t2_PEM_avg + t1_PEM_avg; t2_PEM_avg ~~ t1_PEM_avg
+  t3_TSK_avg ~~ t2_TSK_avg + t1_TSK_avg; t2_TSK_avg ~~ t1_TSK_avg
+  t3_ASE_pain_avg ~~ t2_ASE_pain_avg + t1_ASE_pain_avg; t2_ASE_pain_avg ~~ t1_ASE_pain_avg
+  t3_ASE_function_avg ~~ t2_ASE_function_avg + t1_ASE_function_avg; t2_ASE_function_avg ~~ t1_ASE_function_avg
+  
+  # Latent factor dependence over time, includes treatment effect
+  f1_t3 ~ f1_t2; f1_t2 ~ f1_t1 + No + Edu
+'
+
+factor_2 = '
+  # Latent factor - time 3
+  f1_t3 =~ l11 * t3_OAcomp + l12 * t3_KOAS + l13 * t3_PEM_avg +
+           l14 * t3_TSK_avg + l15 * t3_ASE_pain_avg + l16 * t3_ASE_function_avg
+           
+  f2_t3 =~ l21 * t3_OAcomp + l22 * t3_KOAS + l23 * t3_PEM_avg +
+           l24 * t3_TSK_avg + l25 * t3_ASE_pain_avg + l26 * t3_ASE_function_avg
+
+  # Latent factor - time 2
+  f1_t2 =~ l11 * t2_OAcomp + l12 * t2_KOAS + l13 * t2_PEM_avg +
+           l14 * t2_TSK_avg + l15 * t2_ASE_pain_avg + l16 * t2_ASE_function_avg
+           
+  f2_t2 =~ l21 * t2_OAcomp + l22 * t2_KOAS + l23 * t2_PEM_avg +
+           l24 * t2_TSK_avg + l25 * t2_ASE_pain_avg + l26 * t2_ASE_function_avg
+
+  # Latent factor - time 1
+  f1_t1 =~ l11 * t1_OAcomp + l12 * t1_KOAS + l13 * t1_PEM_avg +
+           l14 * t1_TSK_avg + l15 * t1_ASE_pain_avg + l16 * t1_ASE_function_avg
+           
+  f2_t1 =~ l21 * t1_OAcomp + l22 * t1_KOAS + l23 * t1_PEM_avg +
+           l24 * t1_TSK_avg + l25 * t1_ASE_pain_avg + l26 * t1_ASE_function_avg
+  
+  # Correlated residuals (factors do not capture all autocorrelated variability)
+  t3_OAcomp ~~ t2_OAcomp + t1_OAcomp; t2_OAcomp ~~ t1_OAcomp
+  t3_KOAS ~~ t2_KOAS + t1_KOAS; t2_KOAS ~~ t1_KOAS
+  t3_PEM_avg ~~ t2_PEM_avg + t1_PEM_avg; t2_PEM_avg ~~ t1_PEM_avg
+  t3_TSK_avg ~~ t2_TSK_avg + t1_TSK_avg; t2_TSK_avg ~~ t1_TSK_avg
+  t3_ASE_pain_avg ~~ t2_ASE_pain_avg + t1_ASE_pain_avg; t2_ASE_pain_avg ~~ t1_ASE_pain_avg
+  t3_ASE_function_avg ~~ t2_ASE_function_avg + t1_ASE_function_avg; t2_ASE_function_avg ~~ t1_ASE_function_avg
+  
+  # Latent factor dependence over time, includes treatment effect
+  f1_t3 ~ f1_t2; f1_t2 ~ f1_t1 + No + Edu
+  f2_t3 ~ f2_t2; f2_t2 ~ f2_t1 + No + Edu
+'
+# Fit both models
+fit_1 = cfa(factor_1, data = latent_df)
+fit_2 = cfa(factor_2, data = latent_df)
+
+# Model with two factors is statistically superior
+lavTestLRT(fit_1, fit_2) 
+
+# Second factor has no well-determined loadings
+parameterEstimates(fit_2) %>%
+  subset(op == "=~")
+
+# Single factor model provides similar goodness of fit
+summary(fit_1, fit.measures = T)
+summary(fit_2, fit.measures = T)
+```
+
+The above analyses indicate a slightly better fit for the model with two factors, as well as an acceptable representation of the data for this model according to standard goodness of fit metrics. As a result, we proceed with a very simple model using two latent factors.
+
+Examination of the latent factor loadings above indicates that the second factor is not well-defined (no factor loadings are statistically significant). This leads to issues with bootstrap resampling stability, and so we switch here to use of a robust maximum likelihood procedure.
+
+```{r latent_mediation}
+# Mediation and first factor fit
+latent_mod = '
+   # Latent factor - time 3
+  f1_t3 =~ l11 * t3_OAcomp + l12 * t3_KOAS + l13 * t3_PEM_avg +
+           l14 * t3_TSK_avg + l15 * t3_ASE_pain_avg + l16 * t3_ASE_function_avg
+           
+  f2_t3 =~ l21 * t3_OAcomp + l22 * t3_KOAS + l23 * t3_PEM_avg +
+           l24 * t3_TSK_avg + l25 * t3_ASE_pain_avg + l26 * t3_ASE_function_avg
+
+  # Latent factor - time 2
+  f1_t2 =~ l11 * t2_OAcomp + l12 * t2_KOAS + l13 * t2_PEM_avg +
+           l14 * t2_TSK_avg + l15 * t2_ASE_pain_avg + l16 * t2_ASE_function_avg
+           
+  f2_t2 =~ l21 * t2_OAcomp + l22 * t2_KOAS + l23 * t2_PEM_avg +
+           l24 * t2_TSK_avg + l25 * t2_ASE_pain_avg + l26 * t2_ASE_function_avg
+
+  # Latent factor - time 1
+  f1_t1 =~ l11 * t1_OAcomp + l12 * t1_KOAS + l13 * t1_PEM_avg +
+           l14 * t1_TSK_avg + l15 * t1_ASE_pain_avg + l16 * t1_ASE_function_avg
+           
+  f2_t1 =~ l21 * t1_OAcomp + l22 * t1_KOAS + l23 * t1_PEM_avg +
+           l24 * t1_TSK_avg + l25 * t1_ASE_pain_avg + l26 * t1_ASE_function_avg
+  
+  # Correlated residuals (factors do not capture all autocorrelated variability)
+  t3_OAcomp ~~ t2_OAcomp + t1_OAcomp; t2_OAcomp ~~ t1_OAcomp
+  t3_KOAS ~~ t2_KOAS + t1_KOAS; t2_KOAS ~~ t1_KOAS
+  t3_PEM_avg ~~ t2_PEM_avg + t1_PEM_avg; t2_PEM_avg ~~ t1_PEM_avg
+  t3_TSK_avg ~~ t2_TSK_avg + t1_TSK_avg; t2_TSK_avg ~~ t1_TSK_avg
+  t3_ASE_pain_avg ~~ t2_ASE_pain_avg + t1_ASE_pain_avg; t2_ASE_pain_avg ~~ t1_ASE_pain_avg
+  t3_ASE_function_avg ~~ t2_ASE_function_avg + t1_ASE_function_avg; t2_ASE_function_avg ~~ t1_ASE_function_avg
+  
+  # Latent factor dependence over time
+  f1_t3 ~ f1_t2
+  f2_t3 ~ f2_t2
+  
+  # Mediation models, includes treatment effect
+  f1_t2 ~ a1 * No + a2 * Edu + f1_t1
+  f2_t2 ~ b1 * No + b2 * Edu + f2_t1
+  
+  # Outcome model
+  t3_PASE_total ~ c1 * No + c2 * Edu + d * f1_t2 + t1_PASE_total + e * f2_t2 
+  
+  # Indirect effects
+  med_F1_No := a1 * d
+  med_F1_Edu := a2 * d
+  
+  med_F2_No := b1 * e
+  med_F2_Edu := b2 * e
+
+  # Total effects
+  total_B_No := c1 + a1 * d + b1 * e
+  total_B_Edu := c2 + a2 * d + b2 * e 
+'
+
+latent_fit = sem(
+  model = latent_mod,
+  data = latent_df,
+  estimator = "MLR"
+)
+
+# Latent factor mediation
+parameterEstimates(latent_fit) %>% # , boot.ci.type = "bca.simple") %>%
+  filter(label %in% c("med_F1_No", "med_F1_Edu", 
+                      "med_F2_No", "med_F2_Edu",
+                      "total_B_No", "total_B_Edu")) %>%
+  select(label, est, pvalue, ci.lower, ci.upper) %>%
+  separate_wider_delim(label,
+                       delim = "_",
+                       names = c("Type", "Factor", "Comparison")) %>%
+  mutate(Effect = case_when(Type == "med" & Factor == "F1" ~ "F1 Indirect", 
+                            Type == "med" & Factor == "F2" ~ "F2 Indirect",
+                            TRUE ~ "Total Effect"),
+         Comparison = case_when(Comparison == "No" ~ "No-intervention", 
+                                TRUE ~ "Education"), 
+         est = -1 * est, CI_LB = -1 * ci.upper, CI_UB = -1 * ci.lower) %>%
+  select(Comparison, Effect, est, CI_LB, CI_UB, pvalue)
+```
+
+We find that the indirect effect of the second latent factor is statistically significant for both comparisons. We can now examine the latent factor loadings to understand this factor's components, as well as how the latent factor distributions develop over the course of the treatment period by arm.
+
+```{r latent_loadings}
+{
+  weights = parameterEstimates(latent_fit, boot.ci.type = "norm") %>%
+    filter(label %in% c("l21", "l22", "l23", "l24", "l25", "l26")) %>%
+    select(label, est) %>%
+    group_by(label) %>%
+    summarise(est = first(est)) %>%
+    arrange(label) %>%
+    pull(est)
+  
+  names(weights) = c("OA Mindset", "OA Knowledge", "Exercise Mindset", 
+                     "Fear of Movement", "Pain Self-Efficacy", "Other Self-Efficacy")
+  print(weights)
+}
+```
+
+We see that the latent factor measures OA mindset and self-efficacy in a similar magnitude and positive direction, while exercise mindset and OA knowledge are in the same direction but lower in magnitude. Fear of movement contributes a similar magnitude to these secondary factors, but in a negative direction.
+
+```{r latent_vis}
+latent_plot_df = latent_df %>%
+  mutate(latent_1 = weights[1] * t1_OAcomp + 
+           weights[2] * t1_KOAS + 
+           weights[3] * t1_PEM_avg + 
+           weights[4] * t1_TSK_avg + 
+           weights[5] * t1_ASE_pain_avg + 
+           weights[6] * t1_ASE_function_avg, 
+         latent_2 = weights[1] * t2_OAcomp + 
+           weights[2] * t2_KOAS + 
+           weights[3] * t2_PEM_avg + 
+           weights[4] * t2_TSK_avg + 
+           weights[5] * t2_ASE_pain_avg + 
+           weights[6] * t2_ASE_function_avg, 
+         latent_3 = weights[1] * t3_OAcomp + 
+           weights[2] * t3_KOAS + 
+           weights[3] * t3_PEM_avg + 
+           weights[4] * t3_TSK_avg + 
+           weights[5] * t3_ASE_pain_avg + 
+           weights[6] * t3_ASE_function_avg) %>%
+  select(group, latent_1, latent_2, latent_3) %>%
+  mutate(ID = row_number()) %>%
+  pivot_longer(-c(ID, group), names_to = "Time", values_to = "Latent") %>%
+  mutate(Time = case_when(Time == "latent_1" ~ "Time Point 1", 
+                          Time == "latent_2" ~ "Time Point 2",
+                          TRUE ~"Time Point 3"),
+         group = factor(group, levels = c("Mindset", "Education", "No-intervention")))
+
+# Densities at each time point
+latent_plot_df %>%
+  ggplot(aes(x = Latent, group = group, fill = group)) + 
+  geom_density(alpha = 0.5) + 
+  theme_classic() + 
+  facet_grid(.~Time) + 
+  labs(fill = "", x = "Latent Factor", y = "Density")
+
+# Trajectories by group over time
+latent_plot_df %>%
+  ggplot(aes(x = Time, y = Latent)) + 
+  geom_line(aes(group = ID, color = group), alpha = 0.2) +
+  geom_smooth(aes(group = group, color = group), method = "lm", 
+              se = F) + 
+  theme_classic() + 
+  labs(x = "Time Point", y = "Latent Factor", color = "", fill = "")
+```
