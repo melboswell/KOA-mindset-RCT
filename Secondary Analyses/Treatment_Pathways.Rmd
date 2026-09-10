@@ -156,7 +156,7 @@ for(idx in 1:length(outcomes)){
       parallel = "multicore",
       ncpus = 8,
       se = "boot",
-      bootstrap = 20000
+      bootstrap = 50000
     )
   }
   
@@ -170,8 +170,9 @@ for(idx in 1:length(outcomes)){
            Effect = case_when(Mediator == "OAcomp" ~ "OA Mindset", 
                               TRUE ~ "Total"), 
            Outcome = out_names[idx],
-           est = -1 * est, CI_LB = -1 * ci.upper, CI_UB = -1 * ci.lower) %>%
-    select(Comparison, Outcome, Effect, est, CI_LB, CI_UB, pvalue)
+           est = -1 * est, CI_LB = -1 * ci.upper, CI_UB = -1 * ci.lower, 
+           `Sample Size` = nobs(fit)) %>%
+    select(Comparison, Outcome, Effect, est, CI_LB, CI_UB, pvalue, `Sample Size`)
   
   ind_df = rbind(ind_df, outcome_df)
 }
@@ -201,7 +202,22 @@ view_df %>%
   arrange(pvalue)
 ```
 
-After Benjamini-Hochberg correction, all indirect effects are statistically significant at the 0.05 level. Under Bonferroni adjustment, the OA mindset does not significantly mediate the effect of the treatment on perceived need for surgery at the 0.05 level, regardless of the chosen contrast.
+After Benjamini-Hochberg correction, all indirect effects are still statistically significant at the 0.05 level. Under Bonferroni adjustment, the OA mindset does not significantly mediate the effect of the treatment on perceived need for surgery at the 0.05 level, regardless of the chosen contrast.
+
+## Summary Table
+
+We collate the above results into a final table containing all relevant information.
+
+```{r single_med_table}
+ind_df %>%
+  filter(Effect == "OA Mindset") %>%
+  select(-c(Effect, pvalue)) %>%
+  inner_join(view_df, by = c("Comparison", "Outcome")) %>%
+  arrange(Outcome, Comparison) %>%
+  rename(Estimate = est, `CI Lower` = CI_LB, 
+         `CI Upper` = CI_UB, `P Value` = pvalue, 
+         `Benjamini Hochberg` = BH)
+```
 
 ## Visualization
 
