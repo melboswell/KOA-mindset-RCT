@@ -374,9 +374,10 @@ for(idx in 1:length(outcomes)){
       parallel = "multicore",
       ncpus = 8,
       se = "boot",
-      bootstrap = 5000
+      bootstrap = 50000
     )
   }
+  
   
   outcome_df = parameterEstimates(fit, boot.ci.type = "bca.simple") %>%
     filter(label %in% c("med_OAcomp_No", "med_OAcomp_Edu", 
@@ -390,8 +391,10 @@ for(idx in 1:length(outcomes)){
                               Mediator == "KOAS" ~ "OA Knowledge", 
                               TRUE ~ "Total"), 
            Outcome = out_names[idx],
-           est = -1 * est, CI_LB = -1 * ci.upper, CI_UB = -1 * ci.lower) %>%
-    select(Comparison, Outcome, Effect, est, CI_LB, CI_UB, pvalue)
+           est = -1 * est, CI_LB = -1 * ci.upper, CI_UB = -1 * ci.lower, 
+           `Sample Size` = nobs(fit)) %>%
+    select(Comparison, Outcome, Effect, est, CI_LB, CI_UB, pvalue, 
+          `Sample Size`)
   
   joint_df = rbind(joint_df, outcome_df)
 }
@@ -424,11 +427,26 @@ view_df_OAknow$BH = p.adjust(view_df_OAknow$pvalue, method = "BH")
 view_df_OAknow$Bonferroni = p.adjust(view_df_OAknow$pvalue, method = "bonferroni")
 
 # Visualize
-rbind(view_df_OAknow, view_df_OAcomp) %>%
+view_df = rbind(view_df_OAknow, view_df_OAcomp) 
+view_df %>%
   arrange(Effect, Comparison, Outcome)
 ```
 
 After Benjamini-Hochberg and Bonferroni correction, indirect effects for the mindset mediation of treatment effect on imposing physical limitations lose statistical significant at the 0.05 level vs both of the other arms. However, all other indirect effects that were previously significant are still statistically significant at the 0.05 level.
+
+## Summary Table
+
+As in the single mediation analyses, we can collate the above results into a final table containing all relevant information.
+
+```{r joint_med_table}
+joint_df %>%
+  select(-c(pvalue)) %>%
+  inner_join(view_df, by = c("Comparison", "Outcome", "Effect")) %>%
+  arrange(Effect, Outcome, Comparison) %>%
+  rename(Estimate = est, `CI Lower` = CI_LB, 
+         `CI Upper` = CI_UB, `P Value` = pvalue, 
+         `Benjamini Hochberg` = BH)
+```
 
 ## Visualization
 
