@@ -3,13 +3,14 @@ title: "Treatment Pathways"
 author: "Joe Sartini"
 date: "2026-09-01"
 output:
-  html_document: default
-  pdf_document: default
+  html_document:
+    df_print: paged
 ---
 
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(cache = TRUE)
 ```
 
 # Set-up
@@ -26,7 +27,6 @@ library(knitr)
 library(ggtext)
 library(corrplot)
 select = dplyr::select
-set.seed(12345)
 
 # Next, reading the data
 GLAB = c("Mindset", "Education", "No-intervention")
@@ -56,11 +56,12 @@ df = read.csv("../deidentified_data.csv") %>%
 
 ## Mediation
 
-We perform separate causal mediation analyses to assess OA mindset at time point two as a potential mediator of the treatment effect on 5 outcomes at time point 3 which were impacted by the treatment, after adjusting for baseline values. The outcomes include perceived need for surgery, self-imposed physical limitation (conditional on use of the strategy at time point 1), fear of movement, pain self-efficacy, and other symptom self-efficacy. 
+We perform separate causal mediation analyses to assess OA mindset at time point 2 as a potential mediator of the treatment effect on 5 outcomes at time point 3, adjusted for baseline values. The outcomes include perceived need for surgery, self-imposed physical limitation (conditional on use of the strategy at time point 1), fear of movement, pain self-efficacy, and other symptom self-efficacy. 
 
-We assess mediation of the movement from both the no intervention and education arms to the mindset treatment arm. Generalized linear models are used to model the binary removal of self-imposed physical limitation outcome. Uncertainty is assessed using bootstrap inference.
+We assess mediation of the treatment effect contrasting both the no intervention and education arms with the mindset treatment arm. Generalized linear models are used to model the binary removal of self-imposed physical limitation outcome. Uncertainty is assessed using bootstrap inference for all outcomes except self-imposed physical limitation, for which robust standard errors are calculated.
 
 ```{r mediate_single, message = FALSE}
+set.seed(123456)
 outcomes = c("surgery", "management_11", "TSK_avg", "ASE_pain_avg", "ASE_function_avg")
 
 out_names = c("Perceived need for surgery",
@@ -178,7 +179,8 @@ for(idx in 1:length(outcomes)){
 }
 
 ind_df %>%
-  arrange(Effect, Comparison, Outcome)
+  arrange(Effect, Comparison, Outcome) %>% 
+  data.frame()
 ```
 
 We see that mindset mediates the treatment effects for both contrasts and all outcomes quite strongly. Note that the "percent_mediated" column just reports the relative size of the mediation effect relative to the total effect, so it can fall outside of the 0\%-100\% range. 
@@ -199,10 +201,11 @@ view_df$Bonferroni = p.adjust(view_df$pvalue, method = "bonferroni")
 
 # Visualize
 view_df %>%
-  arrange(pvalue)
+  arrange(pvalue) %>% 
+  data.frame()
 ```
 
-After Benjamini-Hochberg correction, all indirect effects are still statistically significant at the 0.05 level. Under Bonferroni adjustment, the OA mindset does not significantly mediate the effect of the treatment on perceived need for surgery at the 0.05 level, regardless of the chosen contrast.
+After Benjamini-Hochberg correction, all indirect effects are still statistically significant at the 0.05 level. Under Bonferroni adjustment, OA mindset does not significantly mediate the effect of the treatment on perceived need for surgery at the 0.05 level, regardless of the chosen contrast.
 
 ## Summary Table
 
@@ -216,7 +219,8 @@ ind_df %>%
   arrange(Outcome, Comparison) %>%
   rename(Estimate = est, `CI Lower` = CI_LB, 
          `CI Upper` = CI_UB, `P Value` = pvalue, 
-         `Benjamini Hochberg` = BH)
+         `Benjamini Hochberg` = BH) %>% 
+  data.frame()
 ```
 
 ## Visualization
@@ -257,9 +261,10 @@ est_df %>%
 
 # OA Mindset and OA Knowledge Joint Mediation
 
-We can re-run these same analyses including OA knowledge as a co-mediator to assess mediation of mindset given a particular change in OA knowledge also attributable to the treatment
+We can re-run these same analyses including OA knowledge as a co-mediator to assess whether OA mindset mediates the treatment effect given concurrent effects on OA knowledge.
 
 ```{r mediate_joint, message = FALSE}
+set.seed(123456)
 outcomes = c("surgery", "management_11", "TSK_avg", "ASE_pain_avg", "ASE_function_avg")
 
 out_names = c("Perceived need for surgery",
@@ -400,10 +405,11 @@ for(idx in 1:length(outcomes)){
 }
 
 joint_df %>%
-  arrange(Effect, Comparison, Outcome)
+  arrange(Effect, Comparison, Outcome) %>% 
+  data.frame()
 ```
 
-Even in the presence of mediation from changes in OA knowledge, there is a statistically significant indirect effect indicating mediation of OA mindset on all of the outcomes except the perceived need for surgery.
+Even in the presence of mediation from changes in OA knowledge, there is a statistically significant indirect effect indicating mediation of OA mindset on all outcomes save imposing physical limitations and perceived need for surgery.
 
 ## Multiple Testing Adjustment
 
@@ -429,10 +435,11 @@ view_df_OAknow$Bonferroni = p.adjust(view_df_OAknow$pvalue, method = "bonferroni
 # Visualize
 view_df = rbind(view_df_OAknow, view_df_OAcomp) 
 view_df %>%
-  arrange(Effect, Comparison, Outcome)
+  arrange(Effect, Comparison, Outcome) %>% 
+  data.frame()
 ```
 
-After Benjamini-Hochberg and Bonferroni correction, indirect effects for the mindset mediation of treatment effect on imposing physical limitations lose statistical significant at the 0.05 level vs both of the other arms. However, all other indirect effects that were previously significant are still statistically significant at the 0.05 level.
+After Benjamini-Hochberg and Bonferroni correction, none of the statistical significance results for mediation of the treatment effect due to OA mindset, even considering co-mediation by OA knowledge, qualitatively change.
 
 ## Summary Table
 
@@ -445,7 +452,8 @@ joint_df %>%
   arrange(Effect, Outcome, Comparison) %>%
   rename(Estimate = est, `CI Lower` = CI_LB, 
          `CI Upper` = CI_UB, `P Value` = pvalue, 
-         `Benjamini Hochberg` = BH)
+         `Benjamini Hochberg` = BH) %>% 
+  data.frame()
 ```
 
 ## Visualization
@@ -588,7 +596,8 @@ lavTestLRT(fit_1, fit_2)
 
 # Second factor has no well-determined loadings
 parameterEstimates(fit_2) %>%
-  subset(op == "=~")
+  subset(op == "=~") %>%
+  data.frame()
 
 # Single factor model provides similar goodness of fit
 summary(fit_1, fit.measures = T)
@@ -597,7 +606,7 @@ summary(fit_2, fit.measures = T)
 
 The above analyses indicate a slightly better fit for the model with two factors, as well as an acceptable representation of the data for this model according to standard goodness of fit metrics. As a result, we proceed with a very simple model using two latent factors.
 
-Examination of the latent factor loadings above indicates that the second factor is not well-defined (no factor loadings are statistically significant). This leads to issues with bootstrap resampling stability, and so we switch here to use of a robust maximum likelihood procedure.
+Examination of the latent factor loadings above indicates that the second factor is not well-defined (no factor loadings are statistically significant). This leads to issues with bootstrap resampling stability, and so we switch to use of a robust maximum likelihood procedure.
 
 ```{r latent_mediation}
 # Mediation and first factor fit
@@ -657,11 +666,11 @@ latent_mod = '
 latent_fit = sem(
   model = latent_mod,
   data = latent_df,
-  estimator = "MLR"
+  se = "robust"
 )
 
 # Latent factor mediation
-parameterEstimates(latent_fit) %>% # , boot.ci.type = "bca.simple") %>%
+parameterEstimates(latent_fit) %>%
   filter(label %in% c("med_F1_No", "med_F1_Edu", 
                       "med_F2_No", "med_F2_Edu",
                       "total_B_No", "total_B_Edu")) %>%
@@ -675,7 +684,9 @@ parameterEstimates(latent_fit) %>% # , boot.ci.type = "bca.simple") %>%
          Comparison = case_when(Comparison == "No" ~ "No-intervention", 
                                 TRUE ~ "Education"), 
          est = -1 * est, CI_LB = -1 * ci.upper, CI_UB = -1 * ci.lower) %>%
-  select(Comparison, Effect, est, CI_LB, CI_UB, pvalue)
+  select(Comparison, Effect, est, CI_LB, CI_UB, pvalue) %>%
+  data.frame() %>%
+  rename(Estimate = est, `CI Lower` = CI_LB, `CI Upper` = CI_UB, `P Value` = pvalue)
 ```
 
 We find that the indirect effect of the second latent factor is statistically significant for both comparisons. We can now examine the latent factor loadings to understand this factor's components, as well as how the latent factor distributions develop over the course of the treatment period by arm.
