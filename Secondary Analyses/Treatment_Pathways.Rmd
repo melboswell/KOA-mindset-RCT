@@ -56,7 +56,7 @@ df = read.csv("../deidentified_data.csv") %>%
 
 ## Mediation
 
-We perform separate causal mediation analyses to assess mindset change (time point 2 - time point 1) as a potential mediator of the treatment effect on 5 outcomes which were impacted by the treatment. These outcomes include difference in perceived need for surgery (time point 3 - time point 1), removal of self-imposed physical limitation (time point 1 to time point 3), fear of movement change, change in pain self-efficacy (time point 3 - time point 1), and change in other symptom self-efficacy (time point 3 - time point 1). 
+We perform separate causal mediation analyses to assess OA mindset at time point two as a potential mediator of the treatment effect on 5 outcomes at time point 3 which were impacted by the treatment, after adjusting for baseline values. The outcomes include perceived need for surgery, self-imposed physical limitation (conditional on use of the strategy at time point 1), fear of movement, pain self-efficacy, and other symptom self-efficacy. 
 
 We assess mediation of the movement from both the no intervention and education arms to the mindset treatment arm. Generalized linear models are used to model the binary removal of self-imposed physical limitation outcome. Uncertainty is assessed using bootstrap inference.
 
