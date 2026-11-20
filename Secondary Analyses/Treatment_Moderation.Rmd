@@ -21,7 +21,6 @@ library(mediation)
 library(lavaan)
 library(multcomp)
 library(knitr)
-library(lme4)
 select = dplyr::select
 
 # Next, reading the data
@@ -60,163 +59,140 @@ df = read.csv("../deidentified_data.csv") %>%
 
 # Analysis 1 - Moderators of the Treatment Effect
 
-## Calculate p-values
+## Unadjusted Moderation Analyses
 
-For the moderation analysis, we map over all variables of interest, estimate the corresponding model, and extract the interaction/p-values from the result. Linear regression is used here and throughout as it is simpler, and no boundary effects were observed in any of the models constructed. 
+For the first set of moderation analysis, we regress exercise mindset at time point 2 onto baseline exercise mindset and the interaction between the intervention group and a chosen potential moderator. Models are fit for each potential moderator independently, extracting the corresponding interaction estimates and p-values. We leverage linear regression throughout for simplicity, as no boundary effects were observed. For this set of models, we do not adjust for confounders, instead relying upon the randomization from the original trial. We will assess the impact of adjusting for confounders later.
 
 ```{r moderation_models}
 # Variables of interest
-vars = c("female", "minority", "employed", "bilateral", "t1_age",
-         "t1_bmi", "n_comorbid", "t1_pain", "t1_pain.time", "t1_ASE_pain_avg",
-         "t1_TSK_avg", "t1_PASE_total")
-names(vars) = c("Female", "Racial/ethnic minority", "Employed", "Bilateral symptoms",
-          "Age", "BMI", "# comorbidities",  "Baseline Pain", "Symptom duration",
-          "Baseline self-efficacy", "Baseline fear of movement",
-          "Baseline activity")
+demo_vars = c("female", "minority", "employed", "t1_age")
+health_status = c("bilateral", "t1_bmi", "n_comorbid", "t1_pain", "t1_pain.time",
+                  "t1_ASE_pain_avg", "t1_TSK_avg", "t1_PASE_total")
+names(demo_vars) = c("Female", "Racial/ethnic minority", "Employed", "Age")
+names(health_status) = c("Bilateral symptoms", "BMI", "# comorbidities",  
+                         "Baseline Pain", "Symptom duration", "Baseline self-efficacy",
+                         "Baseline fear of movement", "Baseline activity")
 
 # Standardize continuous variables, convert binary to factor
-bin_vars = vars[1:4]
-cont_vars = vars[-c(1:4)]
+bin_vars = c(demo_vars[1:3], health_status[1])
+cont_vars = c(demo_vars[4], health_status[-c(1)])
 for_mod = df %>%
   mutate(across(all_of(cont_vars), ~ scale(.x)[,1]),
-         across(all_of(bin_vars), ~ factor(.x)))
+         across(all_of(bin_vars), ~ factor(.x))) %>%
+  mutate(group = factor(group, levels = c("Mindset", "Education", "No-intervention")))
 
-analysis_type = "primary"
-mod_string = switch(analysis_type, 
-                    primary = "t2_PEM_avg ~ t1_PEM_avg + group*", 
-                    adjust_1 = "t2_PEM_avg ~ t1_PEM_avg + t1_pain + group*", 
-                    adjust_2 = "t2_PEM_avg ~ t1_PEM_avg + t1_pain + depression + group*", 
-                    adjust_3 = "t2_PEM_avg ~ t1_PEM_avg + t1_pain + depression + t1_ASE_function_avg + t1_ASE_pain_avg + group*") 
-
-# Map over variables and fit models, conditional on baseline mindset
-model_fits = map(vars, function(x){
+# Map over demographic variables and fit models
+demo_fits = imap(demo_vars, function(x, y){
   # Model formula
-  form = as.formula(paste0(mod_string, x)) 
+  form = as.formula(paste0("t2_PEM_avg ~ t1_PEM_avg + group*", x)) 
+  
+  # Fit OLS regression
+  mod = lm(form, data = for_mod)
+  
+  # Extract coefficients and p-values
+  coef_df = summary(mod)$coefficients
+  n_ests = nrow(coef_df)
+  
+  # Estimands are in the last two rows
+  return(data.frame(Var = y, 
+                    Comparator = c("Education", "None"),
+                    p_value = coef_df[c(n_ests-1, n_ests), 4],
+                    interaction = -coef_df[c(n_ests-1, n_ests), 1]))
+}) %>% list_rbind()
+
+# Map over health status variables and fit models
+health_fits = imap(health_status, function(x, y){
+  # Model formula
+  form = as.formula(paste0("t2_PEM_avg ~ t1_PEM_avg + group*", x)) 
   
   # Fit OLS regression
   mod = lm(form, data = for_mod) 
   
   # Extract coefficients and p-values
   coef_df = summary(mod)$coefficients 
+  n_ests = nrow(coef_df)
   
-  # Estimand is in the last row
-  return(data.frame(p_value = coef_df[nrow(coef_df), 4],
-                    interaction = coef_df[nrow(coef_df), 1]))
+  # Estimands are in the last two rows
+  return(data.frame(Var = y, 
+                    Comparator = c("Education", "None"),
+                    p_value = coef_df[c(n_ests-1, n_ests), 4],
+                    interaction = -coef_df[c(n_ests-1, n_ests), 1]))
 }) %>% list_rbind()
 ```
 
-## Adjusting p-values
+## Multiplicity Adjustment
 
-We next adjust the p-values to account for multiple testing. Several different adjustment routines are considered as sensitivity analysis, though the main findings use Benjamini Hochberg. Bonferroni correction, Benjamini Yukeiteli, and maxT all are known to be more conservative than Benjamini Hochberg. As the maxT procedure is not available from a library in R, it is implemented from scratch below. A good resource for this procedure is [here](https://brainder.org/2017/01/18/why-the-maximum-statistic/).
-
-```{r moderation_maxT}
-n_boot = 10000
-
-raw_t_stats = map(vars, function(x){
-  # Model formula
-  form = as.formula(paste0(mod_string, x))
-  
-  # Fit the model
-  mod = lm(form, data = for_mod)
-  
-  # Extract the coefficients
-  coef_df = summary(mod)$coefficients
-  
-  # Estimand is in last row, t-statistic is in third column
-  return(coef_df[nrow(coef_df), 3])
-}) %>% unlist()
-
-# Next, permute the predictors (keeping the responses fixed), and estimate
-# max t-statistics
-permute_maxT = map(1:n_boot, function(x){
-  # Permute the dataset
-  permuted = for_mod[sample(nrow(for_mod), replace = F),]
-  permuted$t2_PEM_avg = for_mod$t2_PEM_avg
-
-  # Calculate t-statistics for permuted dataset
-  perm_t = map(vars, function(y){
-    # Model formula
-    form = as.formula(paste0(mod_string, y))
-    
-    # Fit the model
-    mod = lm(form, data = permuted)
-    
-    # Extract the coefficients
-    coef_df = summary(mod)$coefficients
-    
-    # Estimand is in last row, t-statistic is in third column
-    return(coef_df[nrow(coef_df), 3])
-  }) %>% unlist()
-
-  # Return the maximum absolute t-statistic among the predictors
-  return(max(abs(perm_t)))
-}) %>% unlist()
-
-# maxT-adjusted p-value is the empirical quantile of the absolute t-statistics
-# within the distribution of maximum absolute t-statistics
-maxT_corrected = map(1:length(vars), function(idx){
-  return(mean(abs(raw_t_stats[idx]) <= permute_maxT))
-}) %>% unlist()
-```
-
-We now compare these p-values with the other methods.
+We next adjust the p-values to account for multiple testing using Benjamini Hochberg and Bonferroni correction. Here, we collect the moderators into two groups for the purposes of multiple testing, those which are related to demographic features (gender, minority status, age, employment) and those related to prior health status and function.
 
 ```{r moderation_pvals}
-data.frame(Var = names(vars),
-           interaction = model_fits$interaction,
-           p_value = model_fits$p_value,
-           BH = p.adjust(model_fits$p_value, method = "BH"),
-           BY = p.adjust(model_fits$p_value, method = "BY"),
-           Bonferroni = p.adjust(model_fits$p_value, method = "bonferroni"),
-           MaxT = maxT_corrected) %>%
+rbind(demo_fits, health_fits) %>%
+  mutate(Grouping = case_when(Var %in% names(demo_vars) ~ "Demographics", 
+                              TRUE ~ "Health Status")) %>%
+  group_by(Grouping) %>%
+  mutate(BH = p.adjust(p_value, method = "BH"), 
+         Bonferroni = p.adjust(p_value, method = "bonferroni")) %>%
   arrange(p_value)
 ```
 
-Baseline activity and self-efficacy show up as consistent moderators, regardless of adjustment method.  Baseline fear of movement and baseline pain are also significant using Benjamini-Hochberg adjustment, but they lose moderator status under more conservative adjustment routines.
+Under Benjamini-Hochberg correction, baseline self-efficacy, fear of movement, and pain are statistically significant moderators of the treatment effect on exercise mindset regardless of reference group. Baseline activity additionally moderates the relationship, but only when the comparator is the no-intervention arm. Almost all of these interactions are still significant under the more conservative Bonferroni correction, with the exception of baseline fear of movement and pain relative to the no intervention comparison group.
 
-## Evaluating the Benjamini-Hochberg Procedure
+## Adjusted Moderation Analyses
 
-To quickly assess whether the covariate structure in this case conflicts with the assumptions of the Benjamini-Hochberg procedure (tests are independent or exhibit positive regression dependence), we perform a simple empirical assessment. By permuting the subject's covariate values while keeping the responses fixed, we break all associations between predictors and outcomes. We can then estimate the moderation models, apply the Benjamini-Hochberg procedure, and assess the false discovery rate for the tests now known to be null. As all tests are truly null, note that Benjamini-Hochberg is expected to be much more conservative, nearly on-par with Bonferroni in control of the Family-wise Error Rate (rather than the False Discovery Rate).
+We now adjust for several potential confounders as a sensitivity. We include depression status, baseline pain self efficacy, baseline other symptom self efficacy, and baseline OA mindset.
 
-```{r moderation_eval}
-# Number of bootstrap replicates
-n_boot = 10000
-
-false_discovery = map(1:n_boot, function(x){
-  # Permute the dataset
-  permuted = for_mod[sample(nrow(for_mod), replace = F),]
-  permuted$t2_PEM_avg = for_mod$t2_PEM_avg
+```{r adjusted_moderation}
+# Map over demographic variables and fit models
+demo_fits = imap(demo_vars, function(x, y){
+  # Model formula
+  form = as.formula(paste0("t2_PEM_avg ~ t1_PEM_avg + depression + t1_ASE_function_avg + t1_ASE_pain_avg + t1_OAcomp + group*", x)) 
   
-  # P-values after permutation
-  perm_pvals = map(vars, function(y){
-    # Model formula
-    form = as.formula(paste0("t2_PEM_avg ~ t1_PEM_avg + group*", y))
-    
-    # Fit the model on the permuted data
-    mod = lm(form, data = permuted)
-    
-    # Extract model coefficients
-    coef_df = summary(mod)$coefficients
-    
-    # Estimand is in last row, p-value is in fourth column
-    return(coef_df[nrow(coef_df), 4])
-  }) %>% unlist()
+  # Fit OLS regression
+  mod = lm(form, data = for_mod)
   
-  # Apply the Benjamini-Hochberg adjustment
-  adj_pvals = p.adjust(perm_pvals, method = "BH")
+  # Extract coefficients and p-values
+  coef_df = summary(mod)$coefficients
+  n_ests = nrow(coef_df)
+  
+  # Estimands are in the last two rows
+  return(data.frame(Var = y, 
+                    Comparator = c("Education", "None"),
+                    p_value = coef_df[c(n_ests-1, n_ests), 4],
+                    interaction = -coef_df[c(n_ests-1, n_ests), 1]))
+}) %>% list_rbind()
 
-  # Calculate FDR
-  return(mean(adj_pvals < 0.05))
-}) %>% unlist()
+# Map over health status variables and fit models
+health_fits = imap(health_status, function(x, y){
+  # Model formula
+  form = as.formula(paste0("t2_PEM_avg ~ t1_PEM_avg + depression + t1_ASE_function_avg + t1_ASE_pain_avg + t1_OAcomp + group*", x)) 
+  
+  # Fit OLS regression
+  mod = lm(form, data = for_mod) 
+  
+  # Extract coefficients and p-values
+  coef_df = summary(mod)$coefficients 
+  n_ests = nrow(coef_df)
+  
+  # Estimands are in the last two rows
+  return(data.frame(Var = y, 
+                    Comparator = c("Education", "None"),
+                    p_value = coef_df[c(n_ests-1, n_ests), 4],
+                    interaction = -coef_df[c(n_ests-1, n_ests), 1]))
+}) %>% list_rbind()
 
-mean(false_discovery) 
+rbind(demo_fits, health_fits) %>%
+  mutate(Grouping = case_when(Var %in% names(demo_vars) ~ "Demographics", 
+                              TRUE ~ "Health Status")) %>%
+  group_by(Grouping) %>%
+  mutate(BH = p.adjust(p_value, method = "BH"), 
+         Bonferroni = p.adjust(p_value, method = "bonferroni")) %>%
+  arrange(p_value)
 ```
 
-The average false discovery rate is considerably below the desired 0.05 level. 
+After confounder adjustment, results remain qualitatively similar. Baseline self-efficacy, fear of movement, and pain are statistically significant moderators of the treatment effect on exercise mindset regardless of reference group under Benjamini-Hochberg adjustment. Only baseline pain compared to the no intervention group is not still significant after the more conservative Bonferroni adjustment. Notably, baseline activity is not significant under any level of correction after incorporating confounders.
 
 # Analysis 2 - Heterogeneity of Treatment Effects
 
-We begin by defining a simple function of baseline knee pain (+), physical activity (-), and arthritis pain self-efficacy (-) which can be used as a suitability criterion. We begin by examining estimated treatment effect within each strata of this criterion.
+We begin by defining a simple function of baseline knee pain (+), physical activity (-), and arthritis pain self-efficacy (-) which can be used as a suitability criterion. We examine estimated treatment effect within each strata of this criterion.
 
 ```{r strata_simple_tertiles}
 # Filter to MINDSET vs NONE
@@ -246,7 +222,7 @@ suit_df %>%
   select(-c(treat, no))
 ```
 
-We can also examine the estimated treatment effects on self-efficacy within sub-populations chosen based upon thresholds for each of the contributing baseline features, giving an idea of the potential effects of enrollment rules. 
+We can also examine the estimated treatment effects on self-efficacy within sub-populations chosen based upon thresholds for each of the contributing baseline features, giving an idea of the potential effects of enrollment rules. The assessed enrollment rules are: 1) baseline pain exceeds threshold; 2) baseline self efficacy below threshold; and 3) baseline activity below threshold. Thresholds are set to the population median for these assessments.
 
 ```{r strata_simple_enrollment}
 ATE_est <- function(df){
@@ -271,7 +247,7 @@ highpain_lowselfeff = enroll_df %>%
 allthree = enroll_df %>%
   filter(pain_thresh & selfeff_thresh & activ_thresh)
 
-data.frame(Enrollment_Rules = c("All", "High pain & low self-efficacy", "All three"), 
+data.frame(Enrollment_Rules = c("All Elligible", "High pain & low self-efficacy", "All three"), 
            Benefit = c(ATE_est(enroll_df),
                        ATE_est(highpain_lowselfeff),
                        ATE_est(allthree)),  
@@ -280,7 +256,7 @@ data.frame(Enrollment_Rules = c("All", "High pain & low self-efficacy", "All thr
                                         nrow(allthree) / nrow(enroll_df)))
 ```
 
-As an alternative to this fixed weighting, we can calculate the first principal component among these three baseline measures, which defines the axis of greatest variation among them for this population. Similar to the procedure used for the simple criterion, we can  examine the estimated treatment effect within strata of this new, PCA-based criterion.
+As an alternative to this fixed weighting, we can calculate the first principal component among these three baseline measures, which defines the axis of greatest variation among them for this population. Similar to the procedure used for the simple criterion, we can examine the estimated treatment effect within strata of this new, PCA-based criterion.
 
 ```{r strata_pca}
 # Calculate the first principal component
