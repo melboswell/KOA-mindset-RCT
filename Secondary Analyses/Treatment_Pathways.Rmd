@@ -24,8 +24,6 @@ library(tidyverse)
 library(mediation)
 library(lavaan)
 library(knitr)
-library(ggtext)
-library(corrplot)
 select = dplyr::select
 
 # Next, reading the data
@@ -52,6 +50,52 @@ df = read.csv("../deidentified_data.csv") %>%
          n_comorbid = lengths(strsplit(t1_med.cond, ",")))
 ```
 
+# Generate Table 1
+
+```{r table_1}
+library(ggtext)
+library(table1)
+library(kableExtra)
+
+for_t1 = df %>%
+  mutate(female = case_when(female == 1 ~ T, 
+                            T ~ F), 
+         employed = case_when(employed == 1 ~ T, 
+                              T ~ F), 
+         depression = case_when(depression == 1 ~ T, 
+                                T ~ F), 
+         minority = case_when(minority == 1 ~ T, 
+                              T ~ F))
+
+# Labels
+label(for_t1$t1_age) = "Age"
+label(for_t1$t1_height) = "Height"
+label(for_t1$t1_weight) = "Weight"
+label(for_t1$female) = "Female (%)"
+label(for_t1$minority) = "Minority (%)"
+label(for_t1$employed) = "Employed (%)"
+label(for_t1$depression) = "Depression (%)"
+label(for_t1$n_comorbid) = "# Comorbidities"
+
+# Units
+units(for_t1$t1_age) = "years"
+units(for_t1$t1_height) = "in"
+units(for_t1$t1_weight) = "lb"
+
+# Render
+rndr <- function(x, ...) {
+    y <- render.default(x, ...)
+    if (is.logical(x)) y[2] else y
+}
+
+x = table1(~  t1_age + t1_height + t1_weight + female + minority + employed + depression + n_comorbid |group, 
+       data = for_t1, render = rndr)
+
+table_out = t1kable(x, format = "latex")
+save_kable(table_out, file = "table1.tex")
+```
+
+
 # OA Mindset Mediation of Treatment Effects on 5 Outcomes
 
 ## Mediation
@@ -74,8 +118,6 @@ build_ind = function(outcome){
   if(outcome == "management_11"){
     mod_spec = paste0(
       '
-  # Mediator Model at time 3
-  t3_OAcomp ~ t2_OAcomp
 
   # Mediator Model at time 2
   t2_OAcomp ~ a1 * No + a2 * Edu + t1_OAcomp
@@ -98,8 +140,6 @@ build_ind = function(outcome){
   else{
     mod_spec = paste0(
       '
-  # Mediator Model at time 3
-  t3_OAcomp ~ t2_OAcomp
 
   # Mediator Model at time 2
   t2_OAcomp ~ a1 * No + a2 * Edu + t1_OAcomp
@@ -183,7 +223,7 @@ ind_df %>%
   data.frame()
 ```
 
-We see that mindset mediates the treatment effects for both contrasts and all outcomes quite strongly. Note that the "percent_mediated" column just reports the relative size of the mediation effect relative to the total effect, so it can fall outside of the 0\%-100\% range. 
+We see that mindset mediates the treatment effects for both contrasts and all outcomes quite strongly.
 
 ## Multiple Testing Adjustment
 
@@ -201,8 +241,10 @@ view_df$Bonferroni = p.adjust(view_df$pvalue, method = "bonferroni")
 
 # Visualize
 view_df %>%
-  arrange(pvalue) %>% 
-  data.frame()
+  arrange(BH) %>%
+  mutate(Significant = case_when(BH < 0.05 ~ "Yes", 
+                                 TRUE ~ "No")) %>%
+  data.frame() 
 ```
 
 After Benjamini-Hochberg correction, all indirect effects are still statistically significant at the 0.05 level. Under Bonferroni adjustment, OA mindset does not significantly mediate the effect of the treatment on perceived need for surgery at the 0.05 level, regardless of the chosen contrast.
@@ -258,6 +300,138 @@ est_df %>%
   labs(x = "Effect Sizes", y = "Comparison Group", caption = "Note that x-axes are linear for all outcomes other than Imposing physical limitations, for which the effects are expressed as odds ratios.", 
        color = "")
 ```
+
+# OA Mindset Mediation of Treatment Effects on 4 Standardized Outcomes (Sensitivity)
+
+## Mediation
+
+We perform separate causal mediation analyses to assess OA mindset at time point 2 as a potential mediator of the treatment effect on the 4 continuous outcomes at time point 3 adjusted for baseline values, all appropriately z-scored. The outcomes include perceived need for surgery, fear of movement, pain self-efficacy, and other symptom self-efficacy. We assess mediation of the treatment effect using an analogous approach to the previous raw analyses. 
+
+```{r mediate_std, message = FALSE}
+set.seed(123456)
+outcomes = c("surgery", "TSK_avg", "ASE_pain_avg", "ASE_function_avg")
+
+out_names = c("Perceived need for surgery",
+              "Fear of movement",
+              "Pain self-efficacy", 
+              "Other symptom self-efficacy")
+
+# Standardize outcomes
+sd_surgery = sd(fit_df$t1_surgery)
+sd_fmovt = sd(fit_df$t1_TSK_avg)
+sd_pseff = sd(fit_df$t1_ASE_pain_avg)
+sd_oseff = sd(fit_df$t1_ASE_function_avg)
+
+std_df = df %>%
+  mutate(t3_surgery = t3_surgery/sd_surgery, 
+         t1_surgery = t1_surgery/sd_surgery, 
+         t3_TSK_avg = t3_TSK_avg/sd_fmovt, 
+         t1_TSK_avg = t1_TSK_avg/sd_fmovt, 
+         t3_ASE_pain_avg = t3_ASE_pain_avg/sd_pseff, 
+         t1_ASE_pain_avg = t1_ASE_pain_avg/sd_pseff, 
+         t3_ASE_function_avg = t3_ASE_function_avg/sd_oseff, 
+         t1_ASE_function_avg = t1_ASE_function_avg/sd_oseff)
+
+build_ind = function(outcome){
+
+  mod_spec = paste0(
+    '
+
+  # Mediator Model at time 2
+  t2_OAcomp ~ a1 * No + a2 * Edu + t1_OAcomp
+
+  # Outcome models
+  t3_',
+  outcome,
+  '~ c1 * No + c2 * Edu + d * t2_OAcomp + t1_',
+  outcome,
+  '
+
+  # Indirect effects
+  med_OAcomp_No := a1 * d
+  med_OAcomp_Edu := a2 * d
+
+  # Total effects
+  total_both_No := c1 + (a1 * d)
+  total_both_Edu := c2 + (a2 * d)
+  '
+  )
+  
+  return(mod_spec)
+}
+
+ind_df = data.frame()
+for(idx in 1:length(outcomes)){
+  # Variable and corresponding SEM model
+  varname = outcomes[idx]
+  model_spec = build_ind(varname)
+  
+  # Create treatment group dummy variables
+  std_df = std_df %>%
+    mutate(
+      Edu = case_when(group == "Education" ~ 1, TRUE ~ 0),
+      No = case_when(group == "No-intervention" ~ 1, TRUE ~ 0)
+    )
+  
+  # Separate if binary outcome
+  fit = sem(
+    model = model_spec,
+    data = std_df,
+    parallel = "multicore",
+    ncpus = 8,
+    se = "boot",
+    bootstrap = 50000
+  )
+  
+  outcome_df = parameterEstimates(fit, boot.ci.type = "bca.simple") %>%
+    filter(label %in% c("med_OAcomp_No", "med_OAcomp_Edu",
+                        "total_both_No", "total_both_Edu")) %>%
+    select(label, est, pvalue, ci.lower, ci.upper) %>%
+    separate_wider_delim(label, delim = "_", names = c("Type", "Mediator", "Comparison")) %>%
+    mutate(Comparison = case_when(Comparison == "No" ~ "No-intervention", 
+                                  TRUE ~ "Education"), 
+           Effect = case_when(Mediator == "OAcomp" ~ "OA Mindset", 
+                              TRUE ~ "Total"), 
+           Outcome = out_names[idx],
+           est = -1 * est, CI_LB = -1 * ci.upper, CI_UB = -1 * ci.lower, 
+           `Sample Size` = nobs(fit)) %>%
+    select(Comparison, Outcome, Effect, est, CI_LB, CI_UB, pvalue, `Sample Size`)
+  
+  ind_df = rbind(ind_df, outcome_df)
+}
+
+ind_df %>%
+  arrange(Effect, Comparison, Outcome) %>% 
+  data.frame()
+```
+
+
+## Summary Table
+
+We collate the results from fitting the above models into a final table containing all relevant information.
+
+```{r std_med_table}
+# Restrict just to the mindset indirect effects
+view_df = ind_df %>%
+  filter(Effect == "OA Mindset") %>%
+  select(Comparison, Outcome, pvalue)
+
+# Adjust the p-values using Benjamini-Hochberg and Bonferroni
+view_df$BH = p.adjust(view_df$pvalue, method = "BH")
+view_df$Bonferroni = p.adjust(view_df$pvalue, method = "bonferroni")
+
+ind_df %>%
+  filter(Effect == "OA Mindset") %>%
+  select(-c(Effect, pvalue)) %>%
+  inner_join(view_df, by = c("Comparison", "Outcome")) %>%
+  arrange(Outcome, Comparison) %>%
+  rename(Estimate = est, `CI Lower` = CI_LB, 
+         `CI Upper` = CI_UB, `P Value` = pvalue, 
+         `Benjamini Hochberg` = BH) %>% 
+  data.frame()
+```
+
+We see that mindset indirect effects are of similar magnitude for the two forms of self-efficacy across both comparison groups. Fear of movement indirect effects are actually quite similar in magnitude to the self-efficacy effects, but in the reverse direction. The weakest effect, though still significant, appears to be the indirect effect on perceived need for surgery. 
 
 # OA Mindset and OA Knowledge Joint Mediation
 
@@ -468,7 +642,7 @@ est_df = joint_df %>%
 pd = position_dodge(width = 0.5, orientation = "y")
 ref_lines = data.frame(Outcome = out_names, 
                        xint = c(0,1,0,0,0))
-est_df %>%
+out_plot = est_df %>%
   mutate(Est = case_when(Outcome == "Imposing physical limitations" ~ exp(Est), 
                          TRUE ~ Est), 
          CI_UB = case_when(Outcome == "Imposing physical limitations" ~ exp(CI_UB), 
@@ -481,12 +655,14 @@ est_df %>%
                 position = pd) +
   geom_vline(data = ref_lines, aes(xintercept = xint), linetype = "dashed") + 
   theme_bw() + 
-  theme(axis.text.y = element_text(angle = 45, vjust = 0.5, hjust = 1), 
+  theme(axis.text.y = element_text(angle = 60, vjust = 0.5, hjust = 1), 
         plot.caption = element_textbox_simple(margin = margin(t = 10)), 
         legend.position = "bottom") + 
   facet_wrap(.~Outcome, scales = "free_x", nrow = 1) + 
-  labs(x = "Effect Sizes", y = "Comparison Group", caption = "Note that x-axes are linear for all outcomes other than Imposing physical limitations, for which the effects are expressed as odds ratios.", 
+  labs(x = "Indirect Effects", y = "Comparison Group", caption = "Note that x-axes are linear for all outcomes other than Imposing physical limitations, for which the effects are expressed as odds ratios.", 
        color = "")
+ggsave("Vis.png", out_plot, height = 5, width = 12)
+out_plot
 ```
 
 # Exploratory Latent Factor Models
